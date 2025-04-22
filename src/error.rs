@@ -1,4 +1,4 @@
-use std::num::ParseIntError;
+use std::num::{ParseFloatError, ParseIntError};
 use quick_xml::events::attributes::AttrError;
 use crate::error::ProductParseError::BadSubProduct;
 use crate::xml_utils::Element;
@@ -15,13 +15,15 @@ impl From<strum::ParseError> for ProductParseError {
 }
 
 #[derive(Debug)]
-pub(crate) enum ParseError {
+pub enum ParseError {
     /// Error parsing XML attributes.
     Attr(AttrError),
     /// Error parsing XML (other than attributes).
     Xml(quick_xml::Error),
     /// Error parsing an integer from a string.
     Int(ParseIntError),
+    /// Error parsing a float from a string.
+    Float(ParseFloatError),
     /// Error parsing an enum variant from a string.
     Enum(strum::ParseError),
     /// Could not find the desired [`Element`].
@@ -45,6 +47,12 @@ impl From<quick_xml::Error> for ParseError {
 impl From<ParseIntError> for ParseError {
     fn from(e: ParseIntError) -> Self {
         Self::Int(e)
+    }
+}
+
+impl From<ParseFloatError> for ParseError {
+    fn from(e: ParseFloatError) -> Self {
+        Self::Float(e)
     }
 }
 

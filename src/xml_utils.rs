@@ -12,7 +12,7 @@ pub(crate) struct Element {
 }
 
 impl Element {
-    pub(crate) fn parse<R: std::io::BufRead>(
+    pub fn parse<R: std::io::BufRead>(
         reader: &mut NsReader<R>,
         start: BytesStart,
     ) -> Result<Self, ParseError> {
@@ -73,5 +73,19 @@ impl Element {
     
     pub(crate) fn get(&self, tag_name: &str) -> Result<&Element, ParseError> {
         self.find(tag_name).ok_or(ParseError::ElementNotFound)
+    }
+}
+
+/// Searches for an immediate child element with the given name. Returns a reference to the element
+/// if present. If `elem` is `None` or the child element is not found, returns `None`.
+pub(crate) fn child_or_none<'a>(elem: Option<&'a Element>, child_name: &str) -> Option<&'a Element> {
+    elem?.find(child_name)
+}
+
+pub(crate) fn text_or_none(elem: Option<&Element>) -> Option<&str> {
+    if let Some(elem) = elem {
+        Some(&elem.text)
+    } else {
+        None
     }
 }

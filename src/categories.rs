@@ -1,6 +1,8 @@
 //! Some enum types that are used as building blocks in the main [`ReferenceData`] structs.
 
+use std::str::FromStr;
 use strum_macros::{EnumString, Display};
+use crate::error::ParseError;
 
 /// Represents the unit of time in which the term is expressed (days, weeks, months, or years).
 #[derive(Debug, EnumString, Display)]
@@ -15,9 +17,9 @@ pub enum IndexTermUnit {
     Year,
 }
 
-/// Represents the name of an index or benchmark.
+/// A four-letter code representing an index or benchmark.
 #[derive(Debug, EnumString, Display)]
-pub enum IndexName {
+pub enum IndexCode {
     #[strum(serialize = "EONA")]
     Eonia,
     #[strum(serialize = "EONS")]
@@ -68,6 +70,26 @@ pub enum IndexName {
     Swap,
     #[strum(serialize = "FUSW")]
     FutureSwap,
+}
+
+/// The name of an index or benchmark.
+#[derive(Debug)]
+pub enum IndexName {
+    /// A four-letter code representing the index or benchmark.
+    Code(IndexCode),
+    /// Free text describing the name of the index or benchmark.
+    Text(String),
+}
+
+impl FromStr for IndexName {
+    type Err = ParseError;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if let Ok(code) = IndexCode::from_str(s) {
+            Ok(IndexName::Code(code))
+        } else {
+            Ok(IndexName::Text(s.to_string()))
+        }
+    }
 }
 
 /// Represents the seniority of a debt instrument.
