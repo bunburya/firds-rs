@@ -26,7 +26,7 @@ fn main() -> Result<(), ParseError> {
                 let tag_name = String::from_utf8_lossy(elem_name.as_ref());
                 if tag_name == target_tag {
                     // 🧠 Found the tag we're interested in
-                    let element = crate::xml_utils::Element::parse(&mut xml_reader, e)?;
+                    let element = crate::xml_utils::Element::parse_start(&mut xml_reader, e)?;
                     let term = IndexTerm::from_xml(&element);
                     assert!(term.is_ok());
                     //println!("Parsed element tree: {:#?}", element);

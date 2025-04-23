@@ -1,7 +1,8 @@
-use std::num::{ParseFloatError, ParseIntError};
-use quick_xml::events::attributes::AttrError;
 use crate::error::ProductParseError::BadSubProduct;
 use crate::xml_utils::Element;
+use quick_xml::events::attributes::AttrError;
+use std::num::{ParseFloatError, ParseIntError};
+use std::str::ParseBoolError;
 
 pub enum ProductParseError {
     NoSubProduct,
@@ -24,10 +25,16 @@ pub enum ParseError {
     Int(ParseIntError),
     /// Error parsing a float from a string.
     Float(ParseFloatError),
+    /// Error parsing a bool from a string.
+    Bool(ParseBoolError),
     /// Error parsing an enum variant from a string.
     Enum(strum::ParseError),
+    /// Error parsing a [`chrono::DateTime`] from a string.
+    DateTime(chrono::ParseError),
     /// Could not find the desired [`Element`].
     ElementNotFound,
+    /// Element had no text where some was expected.
+    TextNotFound,
     /// Something returned [`None`] when we expected [`Some`].
     NoneFound
 }
@@ -53,6 +60,12 @@ impl From<ParseIntError> for ParseError {
 impl From<ParseFloatError> for ParseError {
     fn from(e: ParseFloatError) -> Self {
         Self::Float(e)
+    }
+}
+
+impl From<ParseBoolError> for ParseError {
+    fn from(e: ParseBoolError) -> Self {
+        Self::Bool(e)
     }
 }
 

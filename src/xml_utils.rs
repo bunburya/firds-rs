@@ -2,6 +2,8 @@ use crate::error::ParseError;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::NsReader;
 use std::collections::HashMap;
+use chrono::{DateTime, Utc};
+
 
 #[derive(Debug)]
 pub(crate) struct Element {
@@ -11,8 +13,19 @@ pub(crate) struct Element {
     pub(crate) text: String,
 }
 
+impl Default for Element {
+    fn default() -> Self {
+        Self {
+            name: "".to_string(),
+            attributes: HashMap::new(),
+            children: vec![],
+            text: "".to_string(),
+        }
+    }
+}
+
 impl Element {
-    pub fn parse<R: std::io::BufRead>(
+    pub fn parse_start<R: std::io::BufRead>(
         reader: &mut NsReader<R>,
         start: BytesStart,
     ) -> Result<Self, ParseError> {
@@ -36,7 +49,7 @@ impl Element {
         loop {
             match reader.read_event_into(&mut buf) {
                 Ok(Event::Start(e)) => {
-                    let child = Element::parse(reader, e)?;
+                    let child = Element::parse_start(reader, e)?;
                     children.push(child);
                 },
                 Ok(Event::Text(e)) => {
@@ -62,6 +75,8 @@ impl Element {
         })
     }
     
+    /// Search for the first immediate child [`Element`] with the given tag name, or return `None`
+    /// if no such child is present.
     pub(crate) fn find(&self, tag_name: &str) -> Option<&Element> {
         for child in &self.children {
             if child.name == tag_name {
@@ -71,6 +86,8 @@ impl Element {
         None
     }
     
+    /// Return the first immediate child [`Element`] with the given tag name. Return an error if no
+    /// such child is present.
     pub(crate) fn get(&self, tag_name: &str) -> Result<&Element, ParseError> {
         self.find(tag_name).ok_or(ParseError::ElementNotFound)
     }
@@ -87,5 +104,16 @@ pub(crate) fn text_or_none(elem: Option<&Element>) -> Option<&str> {
         Some(&elem.text)
     } else {
         None
+    }
+}
+
+pub(crate) fn datetime_or_none(elem: Option<&Element>) -> Result<Option<DateTime<Utc>>, ParseError> {
+    if let Some(elem) = elem {
+        match DateTime::parse_from_rfc3339(&elem.text) {
+            Ok(dt) => Ok(Some(dt.with_timezone(&Utc))),
+            Err(e) => Err(ParseError::DateTime(e))
+        }
+    } else {
+        Ok(None)
     }
 }

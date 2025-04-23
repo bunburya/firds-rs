@@ -1,12 +1,17 @@
 use crate::categories::{IndexName, IndexTermUnit, StrikePriceType};
 use crate::error::ParseError;
-use crate::xml_utils::{child_or_none, text_or_none, Element};
-use std::io::Read;
+use crate::xml_utils::{child_or_none, datetime_or_none, text_or_none, Element};
+use chrono::{DateTime, Utc};
 use std::str::FromStr;
 
 pub trait FromXml: Sized {
+    
+    /// Try to create an instance of `Self` from the given [`Element`].
     fn from_xml(elem: &Element) -> Result<Self, ParseError>;
     
+    /// Try to construct an instance of `Self` from the given [`Element`], if provided, otherwise
+    /// return `None`. Returns a [`ParseError`] if an `Element` was encountered but could not be
+    /// converted to an instance of `Self`.
     fn from_xml_option(elem: Option<&Element>) -> Result<Option<Self>, ParseError> {
         if let Some(e) = elem {
             Ok(Some(Self::from_xml(e)?))
@@ -134,43 +139,51 @@ impl FromXml for Index {
     }
 }
 
-///// Data relating to the trading or admission to trading of a financial instrument on a trading venue.
-// #[derive(Debug)]
-// pub struct TradingVenueAttributes {
-//     /// The Market Identifier Code (ISO 20022) for the trading venue or systemic internaliser.
-//     pub trading_venue: String,
-//     /// Whether the issuer has requested or approved the trading or admission to trading of their financial instruments on a trading venue.
-//     pub requested_admission: bool,
-//     /// Date and time the issuer has approved admission to trading or trading in its financial instruments on a trading venue.
-//     pub approval_date: Option<DateTime>,
-//     /// Date and time of the request for admission to trading on the trading venue.
-//     pub request_date: Option<DateTime>,
-//     /// Date and time of the admission to trading on the trading venue or when the instrument was first traded.
-//     pub admission_or_first_trade_date: Option<DateTime>,
-//     /// Date and time when the instrument ceases to be traded or admitted to trading on the trading venue.
-//     pub termination_date: Option<DateTime>,
-// }
-// 
-// impl TradingVenueAttributes {
-//     /// Parse a `TradgVnRltAttrbts` XML element from FIRDS into a `TradingVenueAttributes` object.
-//     ///
-//     /// # Arguments
-//     /// * `elem` - The XML element to parse. The tag should be `{urn:iso:std:iso:20022:tech:xsd:auth.017.001.02}TradgVnRltAttrbts` or equivalent.
-//     pub fn from_xml(elem: &Element) -> Self {
-//         todo!() // Placeholder for XML parse logic
-//     }
-// }
+/// Data relating to the trading or admission to trading of a financial instrument on a trading venue.
+#[derive(Debug)]
+pub struct TradingVenueAttributes {
+    /// The Market Identifier Code (ISO 20022) for the trading venue or systemic internaliser.
+    pub trading_venue: String,
+    /// Whether the issuer has requested or approved the trading or admission to trading of their financial instruments on a trading venue.
+    pub requested_admission: bool,
+    /// Date and time the issuer has approved admission to trading or trading in its financial instruments on a trading venue.
+    pub approval_date: Option<DateTime<Utc>>,
+    /// Date and time of the request for admission to trading on the trading venue.
+    pub request_date: Option<DateTime<Utc>>,
+    /// Date and time of the admission to trading on the trading venue or when the instrument was first traded.
+    pub admission_or_first_trade_date: Option<DateTime<Utc>>,
+    /// Date and time when the instrument ceases to be traded or admitted to trading on the trading venue.
+    pub termination_date: Option<DateTime<Utc>>,
+}
+
+impl FromXml for TradingVenueAttributes {
+    /// Parse a `TradgVnRltdAttrbts` XML element from FIRDS into a `TradingVenueAttributes` object.
+    ///
+    /// # Arguments
+    /// * `elem` - The XML element to parse. The tag should be `{urn:iso:std:iso:20022:tech:xsd:auth.017.001.02}TradgVnRltAttrbts` or equivalent.
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self {
+            trading_venue: elem.get("Id")?.text.to_owned(),
+            requested_admission: elem.get("IssrReq")?.text.parse::<bool>()?,
+            approval_date: datetime_or_none(elem.find("AdmssnApprvlDtByIssr"))?,
+            request_date: datetime_or_none(elem.find("ReqForAdmssnDt"))?,
+            admission_or_first_trade_date: datetime_or_none(elem.find("FrstTradDt"))?,
+            termination_date: datetime_or_none(elem.find("TermntnDt"))?
+        })
+    }
+}
 
 #[cfg(test)]
 mod tests {
-    use std::env::current_dir;
-    use crate::model::{FromXml, Index, StrikePrice};
+    use crate::model::{FromXml, Index, StrikePrice, TradingVenueAttributes};
     use quick_xml::events::Event;
     use quick_xml::NsReader;
+    use std::env::current_dir;
     use std::fs::File;
     use std::io::BufReader;
-    use std::path::{Path, PathBuf};
-    
+    use std::path::PathBuf;
+    use crate::xml_utils::Element;
+
     fn get_firds_data_dir() -> PathBuf {
         current_dir().unwrap().join("test_data").join("firds_data")
     }
@@ -190,7 +203,7 @@ mod tests {
                         let tag_name = String::from_utf8_lossy(elem_name.as_ref());
                         if tag_name == tag {
                             // 🧠 Found the tag we're interested in
-                            let element_res = crate::xml_utils::Element::parse(&mut xml_reader, e);
+                            let element_res = Element::parse_start(&mut xml_reader, e);
                             assert!(element_res.is_ok());
                             let element = element_res.unwrap();
                             let from_xml_res = T::from_xml(&element);
@@ -263,6 +276,43 @@ mod tests {
                 ("FULINS_R_20250201_07of08.xml", 0),
                 ("FULINS_O_20250201_03of03.xml", 0),
                 ("FULINS_F_20250201_01of01.xml", 0),
+            ]
+        )
+    }
+    
+    #[test]
+    fn test_parse_trading_venue_attrs() {
+        test_parsing_xml::<TradingVenueAttributes>(
+            "TradgVnRltdAttrbts",
+            vec![
+                ("FULINS_D_20250201_02of03.xml", 500000),
+                ("FULINS_O_20250201_01of03.xml", 500000),
+                ("FULINS_C_20250201_01of01.xml", 125816),
+                ("FULINS_S_20250201_01of05.xml", 500000),
+                ("FULINS_D_20250201_03of03.xml", 193982),
+                ("FULINS_S_20250201_04of05.xml", 500000),
+                ("FULINS_S_20250201_03of05.xml", 500000),
+                ("FULINS_H_20250201_01of02.xml", 500000),
+                ("FULINS_R_20250201_08of08.xml", 495128),
+                ("FULINS_R_20250201_02of08.xml", 500000),
+                ("FULINS_R_20250201_07of08.xml", 500000),
+                ("FULINS_O_20250201_03of03.xml", 52304),
+                ("FULINS_F_20250201_01of01.xml", 47878),
+                ("FULINS_E_20250201_01of02.xml", 500000),
+                ("FULINS_O_20250201_02of03.xml", 500000),
+                ("FULINS_R_20250201_03of08.xml", 500000),
+                ("FULINS_R_20250201_05of08.xml", 500000),
+                ("FULINS_E_20250201_02of02.xml", 55790),
+                ("FULINS_R_20250201_04of08.xml", 500000),
+                ("FULINS_I_20250201_01of01.xml", 3),
+                ("FULINS_S_20250201_02of05.xml", 500000),
+                ("FULINS_D_20250201_01of03.xml", 500000),
+                ("FULINS_J_20250201_01of01.xml", 112078),
+                ("FULINS_R_20250201_06of08.xml", 500000),
+                ("FULINS_H_20250201_02of02.xml", 222360),
+                ("FULINS_S_20250201_05of05.xml", 128400),
+                ("FULINS_R_20250201_01of08.xml", 500000),
+
             ]
         )
     }
