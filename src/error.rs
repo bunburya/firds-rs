@@ -1,5 +1,4 @@
 use crate::error::ProductParseError::BadSubProduct;
-use crate::xml_utils::Element;
 use quick_xml::events::attributes::AttrError;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::ParseBoolError;
@@ -66,6 +65,12 @@ impl From<ParseFloatError> for ParseError {
 impl From<ParseBoolError> for ParseError {
     fn from(e: ParseBoolError) -> Self {
         Self::Bool(e)
+    }
+}
+
+impl From<chrono::ParseError> for ParseError {
+    fn from(e: chrono::ParseError) -> Self {
+        Self::DateTime(e)
     }
 }
 

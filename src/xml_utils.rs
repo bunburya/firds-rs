@@ -1,8 +1,8 @@
 use crate::error::ParseError;
+use chrono::{DateTime, NaiveDate, Utc};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::NsReader;
 use std::collections::HashMap;
-use chrono::{DateTime, Utc};
 
 
 #[derive(Debug)]
@@ -111,6 +111,17 @@ pub(crate) fn datetime_or_none(elem: Option<&Element>) -> Result<Option<DateTime
     if let Some(elem) = elem {
         match DateTime::parse_from_rfc3339(&elem.text) {
             Ok(dt) => Ok(Some(dt.with_timezone(&Utc))),
+            Err(e) => Err(ParseError::DateTime(e))
+        }
+    } else {
+        Ok(None)
+    }
+}
+
+pub(crate) fn date_or_none(elem: Option<&Element>) -> Result<Option<NaiveDate>, ParseError> {
+    if let Some(elem) = elem {
+        match NaiveDate::parse_from_str(&elem.text[..10], "%Y-%m-%d") {
+            Ok(date) => Ok(Some(date)),
             Err(e) => Err(ParseError::DateTime(e))
         }
     } else {
