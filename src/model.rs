@@ -33,13 +33,10 @@ pub struct IndexTerm {
 }
 
 impl FromXml for IndexTerm {
-    /// Parse a `Fltg/Term` XML element from FIRDS data into an `IndexTerm` object.
-    ///
-    /// # Arguments
-    /// * `elem` - The XML element to parse. The tag should be `{urn:iso:std:iso:20022:tech:xsd:auth.017.001.02}Term` or equivalent.
+    /// Parse a `Fltg/Term` XML element from FIRDS data into an [`IndexTerm`] struct.
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        let number = elem.get("Val")?.text.parse::<i32>()?;
-        let unit = IndexTermUnit::try_from(elem.get("Unit")?.text.as_str())?;
+        let number = elem.get_child("Val")?.text.parse::<i32>()?;
+        let unit = IndexTermUnit::try_from(elem.get_child("Unit")?.text.as_str())?;
         Ok(Self {
             number,
             unit
@@ -62,21 +59,17 @@ pub struct StrikePrice {
 }
 
 impl FromXml for StrikePrice {
-    /// Parse a `DerivInstrmAttrbts/StrkPric` XML element from FIRDS into a `StrikePrice` object.
-    ///
-    /// # Arguments
-    /// * `elem` - The XML element to parse. The tag should be
-    /// `{urn:iso:std:iso:20022:tech:xsd:auth.017.001.02}StrkPric` or equivalent.
+    /// Parse a `DerivInstrmAttrbts/StrkPric` XML element from FIRDS into a [`StrikePrice`] struct.
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        if let Some(price_elem) = elem.find("Pric") {
-            let monetary_val_elem = price_elem.find("MntryVal");
+        if let Some(price_elem) = elem.find_child("Pric") {
+            let monetary_val_elem = price_elem.find_child("MntryVal");
             let (price_type, val_elem) = if let Some(e) = child_or_none(monetary_val_elem, "Amt") {
                 (StrikePriceType::MonetaryValue, e)
-            } else if let Some(e) = price_elem.find("Pctg") {
+            } else if let Some(e) = price_elem.find_child("Pctg") {
                 (StrikePriceType::Percentage, e)
-            } else if let Some(e) = price_elem.find("Yld") {
+            } else if let Some(e) = price_elem.find_child("Yld") {
                 (StrikePriceType::Yield, e)
-            } else if let Some(e) = price_elem.find("BsisPts") {
+            } else if let Some(e) = price_elem.find_child("BsisPts") {
                 (StrikePriceType::BasisPoints, e)
             } else {
                 return Err(ParseError::ElementNotFound)
@@ -91,9 +84,9 @@ impl FromXml for StrikePrice {
                 currency
             })
         } else {
-            let no_price_elem = elem.get("NoPric")?;
-            let pending = no_price_elem.get("Pdg")?.text == "PNDG";
-            let currency = text_or_none(no_price_elem.find("Ccy")).map(ToOwned::to_owned);
+            let no_price_elem = elem.get_child("NoPric")?;
+            let pending = no_price_elem.get_child("Pdg")?.text == "PNDG";
+            let currency = text_or_none(no_price_elem.find_child("Ccy")).map(ToOwned::to_owned);
             Ok(Self {
                 price_type: StrikePriceType::NoPrice,
                 price: None,
@@ -118,24 +111,23 @@ pub struct Index {
 
 impl FromXml for Index {
     /// Parse an `IntrstRate/Fltg`, `DerivInstrmAttrbts/UndrlygInstrm/Sngl/Indx/Nm/RefRate/Nm` or
-    /// equivalent XML element from FIRDS data into an `Index` object.
+    /// equivalent XML element from FIRDS data into an [`Index`] struct.
     ///
-    /// # Arguments
-    /// * `elem` - The XML element to parse. The element should be of type `FloatingInterestRate8`
-    /// as defined in the FULINS XSD.
+    /// Specifically, yhe element should be of type `FloatingInterestRate8` as defined in the FULINS
+    /// XSD.
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        let ref_rate_elem = elem.get("RefRate")?;
-        let name = if let Some(text) = text_or_none(ref_rate_elem.find("Indx")) {
+        let ref_rate_elem = elem.get_child("RefRate")?;
+        let name = if let Some(text) = text_or_none(ref_rate_elem.find_child("Indx")) {
             Some(IndexName::from_str(text)?)
-        } else if let Some(text) = text_or_none(ref_rate_elem.find("Nm")) {
+        } else if let Some(text) = text_or_none(ref_rate_elem.find_child("Nm")) {
             Some(IndexName::from_str(text)?)
         } else {
             None
         };
         Ok(Self {
-            isin: text_or_none(ref_rate_elem.find("ISIN")).map(ToOwned::to_owned),
+            isin: text_or_none(ref_rate_elem.find_child("ISIN")).map(ToOwned::to_owned),
             name,
-            term: IndexTerm::from_xml_option(elem.find("Term"))?
+            term: IndexTerm::from_xml_option(elem.find_child("Term"))?
         })
     }
 }
@@ -163,19 +155,15 @@ pub struct TradingVenueAttributes {
 }
 
 impl FromXml for TradingVenueAttributes {
-    /// Parse a `TradgVnRltdAttrbts` XML element from FIRDS into a `TradingVenueAttributes` object.
-    ///
-    /// # Arguments
-    /// * `elem` - The XML element to parse. The tag should be
-    /// `{urn:iso:std:iso:20022:tech:xsd:auth.017.001.02}TradgVnRltAttrbts` or equivalent.
+    /// Parse a `TradgVnRltdAttrbts` XML element from FIRDS into a `TradingVenueAttributes` struct.
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
         Ok(Self {
-            trading_venue: elem.get("Id")?.text.to_owned(),
-            requested_admission: elem.get("IssrReq")?.text.parse::<bool>()?,
-            approval_date: datetime_or_none(elem.find("AdmssnApprvlDtByIssr"))?,
-            request_date: datetime_or_none(elem.find("ReqForAdmssnDt"))?,
-            admission_or_first_trade_date: datetime_or_none(elem.find("FrstTradDt"))?,
-            termination_date: datetime_or_none(elem.find("TermntnDt"))?
+            trading_venue: elem.get_child("Id")?.text.to_owned(),
+            requested_admission: elem.get_child("IssrReq")?.text.parse::<bool>()?,
+            approval_date: datetime_or_none(elem.find_child("AdmssnApprvlDtByIssr"))?,
+            request_date: datetime_or_none(elem.find_child("ReqForAdmssnDt"))?,
+            admission_or_first_trade_date: datetime_or_none(elem.find_child("FrstTradDt"))?,
+            termination_date: datetime_or_none(elem.find_child("TermntnDt"))?
         })
     }
 }
@@ -194,20 +182,19 @@ impl FromXml for InterestRate {
 
     /// Parse an `IntrstRate` XML element from FIRDS data into an [`InterestRate`] struct.
     ///
-    /// # Arguments
-    /// * elem: The XML element to parse. The element should be an `IntrstRate` element or
-    ///   equivalent. Specifically it should be an element of type `InterestRate6Choice` as defined
-    ///   in the FULINS XSD file (not `FloatingInterestRate8` which appears with the same tag for
-    ///   certain interest rate derivatives).
+    /// The element should be an `IntrstRate` element or equivalent. Specifically it should be an
+    /// element of type `InterestRate6Choice` as defined in the FULINS XSD file (not
+    /// `FloatingInterestRate8` which appears with the same tag for certain interest rate
+    /// derivatives).
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
         
-        Ok(if let Some(fltg) = elem.find("Fltg") {
+        Ok(if let Some(fltg) = elem.find_child("Fltg") {
             Self::Floating(
                 Index::from_xml(fltg)?,
-                fltg.get("BsisPtSprd")?.text.parse::<i32>()?
+                fltg.get_child("BsisPtSprd")?.text.parse::<i32>()?
             )
         } else {
-            Self::Fixed(elem.get("Fxd")?.text.parse::<f64>()?)
+            Self::Fixed(elem.get_child("Fxd")?.text.parse::<f64>()?)
         })
     }
 }
@@ -224,18 +211,15 @@ struct PublicationPeriod {
 impl FromXml for PublicationPeriod {
     
     /// Parse a `PblctnPrd` XML element from FIRDS data into a [`PublicationPeriod`] struct.
-    /// 
-    /// # Arguments
-    /// * elem: The XML element to parse. The element should be a `PblctnPrd` or equivalent element.
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        Ok(if let Some(fdtd) = elem.find("FrDtToDt") {
+        Ok(if let Some(fdtd) = elem.find_child("FrDtToDt") {
             Self {
                 from_date: NaiveDate::parse_from_str(&fdtd.text, "%Y-%m-%d")?,
-                to_date: date_or_none(fdtd.find("ToDt"))?,
+                to_date: date_or_none(fdtd.find_child("ToDt"))?,
             }
         } else {
             Self {
-                from_date: NaiveDate::parse_from_str(&elem.get("FrDt")?.text, "%Y-%m-%d")?,
+                from_date: NaiveDate::parse_from_str(&elem.get_child("FrDt")?.text, "%Y-%m-%d")?,
                 to_date: None,
             }
         })
@@ -257,6 +241,19 @@ struct TechnicalAttributes {
     relevant_trading_venue: Option<String>,
 }
 
+impl FromXml for TechnicalAttributes {
+
+    /// Parse a `TechAttrbts` XML element from FIRDS data into a [`TechnicalAttributes`] struct.
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self {
+            relevant_competent_authority: text_or_none(elem.find_child("RlvntCmptntAuthrty"))
+                .map(String::from),
+            publication_period: PublicationPeriod::from_xml_option(elem.find_child("PblctnPrd"))?,
+            relevant_trading_venue: text_or_none(elem.find_child("RlvntTradgVn")).map(String::from)
+        })
+    }
+}
+
 /// Reference data for bonds or other forms of securitised debt.
 #[derive(Debug)]
 struct DebtAttributes {
@@ -265,7 +262,7 @@ struct DebtAttributes {
     total_issued_amount: f64,
     /// The maturity date of the financial instrument. Only applies to debt instruments
     /// with defined maturity.
-    maturity_date: Option<chrono::NaiveDate>,
+    maturity_date: Option<NaiveDate>,
     /// The currency of the nominal value.
     nominal_currency: String,
     /// The nominal value of each traded unit. If not available, the minimum traded amount
@@ -275,6 +272,21 @@ struct DebtAttributes {
     interest_rate: InterestRate,
     /// The seniority of the financial instrument (senior, mezzanine, subordinated or junior).
     seniority: Option<DebtSeniority>,
+}
+
+impl FromXml for DebtAttributes {
+    /// Parse a `DebtInstrmAttrbts` XML element from FIRDS data into a [`DebtAttributes`] struct.
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        let issued_amount_elem = elem.get_child("TtlIssdNmnlAmt")?;
+        Ok(Self {
+            total_issued_amount: issued_amount_elem.text.parse()?,
+            maturity_date: date_or_none(elem.find_child("MtrtyDt"))?,
+            nominal_currency: issued_amount_elem.get_attr("Ccy")?.to_owned(),
+            nominal_value_per_unit: elem.get_child("NmnlValPerUnit")?.text.parse()?,
+            interest_rate: InterestRate::from_xml(elem.get_child("IntrstRate")?)?,
+            seniority: DebtSeniority::from_xml_option(elem.find_child("DebtSnrty"))?
+        })
+    }
 }
 
 /// Additional reference data for a commodity derivative instrument.
@@ -431,7 +443,7 @@ struct ReferenceData {
 }
 #[cfg(test)]
 mod tests {
-    use crate::model::{FromXml, Index, InterestRate, PublicationPeriod, StrikePrice, TradingVenueAttributes};
+    use crate::model::{DebtAttributes, FromXml, Index, InterestRate, PublicationPeriod, StrikePrice, TechnicalAttributes, TradingVenueAttributes};
     use crate::xml_utils::Element;
     use quick_xml::events::Event;
     use quick_xml::NsReader;
@@ -480,96 +492,87 @@ mod tests {
 
     #[test]
     fn test_parse_strike_price() {
-        test_parsing_xml::<StrikePrice>(
-            "StrkPric",
-            vec![
-                ("FULINS_D_20250201_02of03.xml", 0),
-                ("FULINS_O_20250201_01of03.xml", 500000),
-                ("FULINS_C_20250201_01of01.xml", 0),
-                ("FULINS_S_20250201_01of05.xml", 0),
-                ("FULINS_D_20250201_03of03.xml", 0),
-                ("FULINS_S_20250201_04of05.xml", 0),
-                ("FULINS_S_20250201_03of05.xml", 0),
-                ("FULINS_H_20250201_01of02.xml", 284971),
-                ("FULINS_R_20250201_08of08.xml", 495128),
-                ("FULINS_R_20250201_02of08.xml", 23289),
-                ("FULINS_R_20250201_07of08.xml", 500000),
-                ("FULINS_O_20250201_03of03.xml", 52304),
-                ("FULINS_F_20250201_01of01.xml", 0),
-                ("FULINS_E_20250201_01of02.xml", 0),
-                ("FULINS_O_20250201_02of03.xml", 500000),
-                ("FULINS_R_20250201_03of08.xml", 23290),
-                ("FULINS_R_20250201_05of08.xml", 156758),
-                ("FULINS_E_20250201_02of02.xml", 0),
-                ("FULINS_R_20250201_04of08.xml", 20027),
-                ("FULINS_I_20250201_01of01.xml", 0),
-                ("FULINS_S_20250201_02of05.xml", 0),
-                ("FULINS_D_20250201_01of03.xml", 0),
-                ("FULINS_J_20250201_01of01.xml", 0),
-                ("FULINS_R_20250201_06of08.xml", 500000),
-                ("FULINS_H_20250201_02of02.xml", 179),
-                ("FULINS_S_20250201_05of05.xml", 0),
-                ("FULINS_R_20250201_01of08.xml", 15415),
-            ]
-        )
+        test_parsing_xml::<StrikePrice>("StrkPric", vec![
+            ("FULINS_D_20250201_02of03.xml", 0),
+            ("FULINS_O_20250201_01of03.xml", 500000),
+            ("FULINS_C_20250201_01of01.xml", 0),
+            ("FULINS_S_20250201_01of05.xml", 0),
+            ("FULINS_D_20250201_03of03.xml", 0),
+            ("FULINS_S_20250201_04of05.xml", 0),
+            ("FULINS_S_20250201_03of05.xml", 0),
+            ("FULINS_H_20250201_01of02.xml", 284971),
+            ("FULINS_R_20250201_08of08.xml", 495128),
+            ("FULINS_R_20250201_02of08.xml", 23289),
+            ("FULINS_R_20250201_07of08.xml", 500000),
+            ("FULINS_O_20250201_03of03.xml", 52304),
+            ("FULINS_F_20250201_01of01.xml", 0),
+            ("FULINS_E_20250201_01of02.xml", 0),
+            ("FULINS_O_20250201_02of03.xml", 500000),
+            ("FULINS_R_20250201_03of08.xml", 23290),
+            ("FULINS_R_20250201_05of08.xml", 156758),
+            ("FULINS_E_20250201_02of02.xml", 0),
+            ("FULINS_R_20250201_04of08.xml", 20027),
+            ("FULINS_I_20250201_01of01.xml", 0),
+            ("FULINS_S_20250201_02of05.xml", 0),
+            ("FULINS_D_20250201_01of03.xml", 0),
+            ("FULINS_J_20250201_01of01.xml", 0),
+            ("FULINS_R_20250201_06of08.xml", 500000),
+            ("FULINS_H_20250201_02of02.xml", 179),
+            ("FULINS_S_20250201_05of05.xml", 0),
+            ("FULINS_R_20250201_01of08.xml", 15415),
+        ])
     }
     
     #[test]
     fn test_parse_index() {
-        test_parsing_xml::<Index>(
-            "Fltg",
-            vec![
-                ("FULINS_D_20250201_02of03.xml", 7602),
-                ("FULINS_O_20250201_01of03.xml", 0),
-                ("FULINS_C_20250201_01of01.xml", 0),
-                ("FULINS_S_20250201_01of05.xml", 0),
-                ("FULINS_D_20250201_03of03.xml", 20814),
-                ("FULINS_S_20250201_04of05.xml", 873),
-                ("FULINS_S_20250201_03of05.xml", 72378),
-                ("FULINS_H_20250201_01of02.xml", 0),
-                ("FULINS_R_20250201_08of08.xml", 0),
-                ("FULINS_R_20250201_02of08.xml", 0),
-                ("FULINS_R_20250201_07of08.xml", 0),
-                ("FULINS_O_20250201_03of03.xml", 0),
-                ("FULINS_F_20250201_01of01.xml", 0),
-            ]
-        )
+        test_parsing_xml::<Index>("Fltg", vec![
+            ("FULINS_D_20250201_02of03.xml", 7602),
+            ("FULINS_O_20250201_01of03.xml", 0),
+            ("FULINS_C_20250201_01of01.xml", 0),
+            ("FULINS_S_20250201_01of05.xml", 0),
+            ("FULINS_D_20250201_03of03.xml", 20814),
+            ("FULINS_S_20250201_04of05.xml", 873),
+            ("FULINS_S_20250201_03of05.xml", 72378),
+            ("FULINS_H_20250201_01of02.xml", 0),
+            ("FULINS_R_20250201_08of08.xml", 0),
+            ("FULINS_R_20250201_02of08.xml", 0),
+            ("FULINS_R_20250201_07of08.xml", 0),
+            ("FULINS_O_20250201_03of03.xml", 0),
+            ("FULINS_F_20250201_01of01.xml", 0),
+        ])
     }
     
     #[test]
     fn test_parse_trading_venue_attrs() {
-        test_parsing_xml::<TradingVenueAttributes>(
-            "TradgVnRltdAttrbts",
-            vec![
-                ("FULINS_D_20250201_02of03.xml", 500000),
-                ("FULINS_O_20250201_01of03.xml", 500000),
-                ("FULINS_C_20250201_01of01.xml", 125816),
-                ("FULINS_S_20250201_01of05.xml", 500000),
-                ("FULINS_D_20250201_03of03.xml", 193982),
-                ("FULINS_S_20250201_04of05.xml", 500000),
-                ("FULINS_S_20250201_03of05.xml", 500000),
-                ("FULINS_H_20250201_01of02.xml", 500000),
-                ("FULINS_R_20250201_08of08.xml", 495128),
-                ("FULINS_R_20250201_02of08.xml", 500000),
-                ("FULINS_R_20250201_07of08.xml", 500000),
-                ("FULINS_O_20250201_03of03.xml", 52304),
-                ("FULINS_F_20250201_01of01.xml", 47878),
-                ("FULINS_E_20250201_01of02.xml", 500000),
-                ("FULINS_O_20250201_02of03.xml", 500000),
-                ("FULINS_R_20250201_03of08.xml", 500000),
-                ("FULINS_R_20250201_05of08.xml", 500000),
-                ("FULINS_E_20250201_02of02.xml", 55790),
-                ("FULINS_R_20250201_04of08.xml", 500000),
-                ("FULINS_I_20250201_01of01.xml", 3),
-                ("FULINS_S_20250201_02of05.xml", 500000),
-                ("FULINS_D_20250201_01of03.xml", 500000),
-                ("FULINS_J_20250201_01of01.xml", 112078),
-                ("FULINS_R_20250201_06of08.xml", 500000),
-                ("FULINS_H_20250201_02of02.xml", 222360),
-                ("FULINS_S_20250201_05of05.xml", 128400),
-                ("FULINS_R_20250201_01of08.xml", 500000),
-            ]
-        )
+        test_parsing_xml::<TradingVenueAttributes>("TradgVnRltdAttrbts", vec![
+            ("FULINS_D_20250201_02of03.xml", 500000),
+            ("FULINS_O_20250201_01of03.xml", 500000),
+            ("FULINS_C_20250201_01of01.xml", 125816),
+            ("FULINS_S_20250201_01of05.xml", 500000),
+            ("FULINS_D_20250201_03of03.xml", 193982),
+            ("FULINS_S_20250201_04of05.xml", 500000),
+            ("FULINS_S_20250201_03of05.xml", 500000),
+            ("FULINS_H_20250201_01of02.xml", 500000),
+            ("FULINS_R_20250201_08of08.xml", 495128),
+            ("FULINS_R_20250201_02of08.xml", 500000),
+            ("FULINS_R_20250201_07of08.xml", 500000),
+            ("FULINS_O_20250201_03of03.xml", 52304),
+            ("FULINS_F_20250201_01of01.xml", 47878),
+            ("FULINS_E_20250201_01of02.xml", 500000),
+            ("FULINS_O_20250201_02of03.xml", 500000),
+            ("FULINS_R_20250201_03of08.xml", 500000),
+            ("FULINS_R_20250201_05of08.xml", 500000),
+            ("FULINS_E_20250201_02of02.xml", 55790),
+            ("FULINS_R_20250201_04of08.xml", 500000),
+            ("FULINS_I_20250201_01of01.xml", 3),
+            ("FULINS_S_20250201_02of05.xml", 500000),
+            ("FULINS_D_20250201_01of03.xml", 500000),
+            ("FULINS_J_20250201_01of01.xml", 112078),
+            ("FULINS_R_20250201_06of08.xml", 500000),
+            ("FULINS_H_20250201_02of02.xml", 222360),
+            ("FULINS_S_20250201_05of05.xml", 128400),
+            ("FULINS_R_20250201_01of08.xml", 500000),
+        ])
     }
     
     #[test]
@@ -595,37 +598,82 @@ mod tests {
     
     #[test]
     fn test_parse_publication_period() {
-        test_parsing_xml::<PublicationPeriod>(
-            "PblctnPrd",
-            vec![
-                ("FULINS_D_20250201_02of03.xml", 500000),
-                ("FULINS_O_20250201_01of03.xml", 500000),
-                ("FULINS_C_20250201_01of01.xml", 125816),
-                ("FULINS_S_20250201_01of05.xml", 500000),
-                ("FULINS_D_20250201_03of03.xml", 193982),
-                ("FULINS_S_20250201_04of05.xml", 500000),
-                ("FULINS_S_20250201_03of05.xml", 500000),
-                ("FULINS_H_20250201_01of02.xml", 500000),
-                ("FULINS_R_20250201_08of08.xml", 495128),
-                ("FULINS_R_20250201_02of08.xml", 500000),
-                ("FULINS_R_20250201_07of08.xml", 500000),
-                ("FULINS_O_20250201_03of03.xml", 52304),
-                ("FULINS_F_20250201_01of01.xml", 47878),
-                ("FULINS_E_20250201_01of02.xml", 500000),
-                ("FULINS_O_20250201_02of03.xml", 500000),
-                ("FULINS_R_20250201_03of08.xml", 500000),
-                ("FULINS_R_20250201_05of08.xml", 500000),
-                ("FULINS_E_20250201_02of02.xml", 55790),
-                ("FULINS_R_20250201_04of08.xml", 500000),
-                ("FULINS_I_20250201_01of01.xml", 3),
-                ("FULINS_S_20250201_02of05.xml", 500000),
-                ("FULINS_D_20250201_01of03.xml", 500000),
-                ("FULINS_J_20250201_01of01.xml", 112078),
-                ("FULINS_R_20250201_06of08.xml", 500000),
-                ("FULINS_H_20250201_02of02.xml", 222360),
-                ("FULINS_S_20250201_05of05.xml", 128400),
-                ("FULINS_R_20250201_01of08.xml", 500000),
-            ]
-        )
+        test_parsing_xml::<PublicationPeriod>("PblctnPrd", vec![
+            ("FULINS_D_20250201_02of03.xml", 500000),
+            ("FULINS_O_20250201_01of03.xml", 500000),
+            ("FULINS_C_20250201_01of01.xml", 125816),
+            ("FULINS_S_20250201_01of05.xml", 500000),
+            ("FULINS_D_20250201_03of03.xml", 193982),
+            ("FULINS_S_20250201_04of05.xml", 500000),
+            ("FULINS_S_20250201_03of05.xml", 500000),
+            ("FULINS_H_20250201_01of02.xml", 500000),
+            ("FULINS_R_20250201_08of08.xml", 495128),
+            ("FULINS_R_20250201_02of08.xml", 500000),
+            ("FULINS_R_20250201_07of08.xml", 500000),
+            ("FULINS_O_20250201_03of03.xml", 52304),
+            ("FULINS_F_20250201_01of01.xml", 47878),
+            ("FULINS_E_20250201_01of02.xml", 500000),
+            ("FULINS_O_20250201_02of03.xml", 500000),
+            ("FULINS_R_20250201_03of08.xml", 500000),
+            ("FULINS_R_20250201_05of08.xml", 500000),
+            ("FULINS_E_20250201_02of02.xml", 55790),
+            ("FULINS_R_20250201_04of08.xml", 500000),
+            ("FULINS_I_20250201_01of01.xml", 3),
+            ("FULINS_S_20250201_02of05.xml", 500000),
+            ("FULINS_D_20250201_01of03.xml", 500000),
+            ("FULINS_J_20250201_01of01.xml", 112078),
+            ("FULINS_R_20250201_06of08.xml", 500000),
+            ("FULINS_H_20250201_02of02.xml", 222360),
+            ("FULINS_S_20250201_05of05.xml", 128400),
+            ("FULINS_R_20250201_01of08.xml", 500000),
+        ])
+    }
+    
+    #[test]
+    fn test_parse_tech_attr() {
+        test_parsing_xml::<TechnicalAttributes>("TechAttrbts", vec![
+            ("FULINS_D_20250201_02of03.xml", 500000),
+            ("FULINS_O_20250201_01of03.xml", 500000),
+            ("FULINS_C_20250201_01of01.xml", 125816),
+            ("FULINS_S_20250201_01of05.xml", 500000),
+            ("FULINS_D_20250201_03of03.xml", 193982),
+            ("FULINS_S_20250201_04of05.xml", 500000),
+            ("FULINS_S_20250201_03of05.xml", 500000),
+            ("FULINS_H_20250201_01of02.xml", 500000),
+            ("FULINS_R_20250201_08of08.xml", 495128),
+            ("FULINS_R_20250201_02of08.xml", 500000),
+            ("FULINS_R_20250201_07of08.xml", 500000),
+            ("FULINS_O_20250201_03of03.xml", 52304),
+            ("FULINS_F_20250201_01of01.xml", 47878),
+            ("FULINS_E_20250201_01of02.xml", 500000),
+            ("FULINS_O_20250201_02of03.xml", 500000),
+            ("FULINS_R_20250201_03of08.xml", 500000),
+            ("FULINS_R_20250201_05of08.xml", 500000),
+            ("FULINS_E_20250201_02of02.xml", 55790),
+            ("FULINS_R_20250201_04of08.xml", 500000),
+            ("FULINS_I_20250201_01of01.xml", 3),
+            ("FULINS_S_20250201_02of05.xml", 500000),
+            ("FULINS_D_20250201_01of03.xml", 500000),
+            ("FULINS_J_20250201_01of01.xml", 112078),
+            ("FULINS_R_20250201_06of08.xml", 500000),
+            ("FULINS_H_20250201_02of02.xml", 222360),
+            ("FULINS_S_20250201_05of05.xml", 128400),
+            ("FULINS_R_20250201_01of08.xml", 500000),
+        ])
+    }
+    
+    #[test]
+    fn test_parse_debt_attrs() {
+        test_parsing_xml::<DebtAttributes>("DebtInstrmAttrbts", vec![
+            ("FULINS_D_20250201_02of03.xml", 500000),
+            ("FULINS_O_20250201_01of03.xml", 0),
+            ("FULINS_C_20250201_01of01.xml", 0),
+            ("FULINS_S_20250201_01of05.xml", 0),
+            ("FULINS_D_20250201_03of03.xml", 193982),
+            ("FULINS_S_20250201_04of05.xml", 0),
+            ("FULINS_S_20250201_03of05.xml", 0),
+            ("FULINS_H_20250201_01of02.xml", 0),
+            ("FULINS_R_20250201_08of08.xml", 0),
+        ])
     }
 }

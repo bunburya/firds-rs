@@ -3,6 +3,8 @@
 use std::str::FromStr;
 use strum_macros::{EnumString, Display};
 use crate::error::ParseError;
+use crate::model::FromXml;
+use crate::xml_utils::Element;
 
 /// Represents the unit of time in which the term is expressed (days, weeks, months, or years).
 #[derive(Debug, EnumString, Display)]
@@ -105,6 +107,14 @@ pub enum DebtSeniority {
     Junior,
 }
 
+impl FromXml for DebtSeniority {
+
+    /// Parse a `DebtSnrty` XML element from FIRDS data into a [`DebtSeniority`] enum.
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self::from_str(&elem.text)?)
+    } 
+}
+
 /// Represents the type of an option (put, call, or other).
 #[derive(Debug, EnumString, Display)]
 pub enum OptionType {
@@ -190,11 +200,11 @@ pub enum FinalPriceType {
 #[derive(Debug, EnumString, Display)]
 pub enum FxType {
     #[strum(serialize = "FXCR")]
-    FxCrossRates,
+    CrossRates,
     #[strum(serialize = "FXEM")]
-    FxEmergingMarkets,
+    EmergingMarkets,
     #[strum(serialize = "FXMJ")]
-    FxMajors,
+    Majors,
 }
 
 /// Represents the type of strike price.

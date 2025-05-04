@@ -32,6 +32,8 @@ pub enum ParseError {
     DateTime(chrono::ParseError),
     /// Could not find the desired [`Element`].
     ElementNotFound,
+    /// Element did not have the expected attribute
+    AttributeNotFound,
     /// Element had no text where some was expected.
     TextNotFound,
     /// Something returned [`None`] when we expected [`Some`].

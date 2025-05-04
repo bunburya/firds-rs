@@ -77,7 +77,7 @@ impl Element {
     
     /// Search for the first immediate child [`Element`] with the given tag name, or return `None`
     /// if no such child is present.
-    pub(crate) fn find(&self, tag_name: &str) -> Option<&Element> {
+    pub(crate) fn find_child(&self, tag_name: &str) -> Option<&Element> {
         for child in &self.children {
             if child.name == tag_name {
                 return Some(child)
@@ -88,15 +88,26 @@ impl Element {
     
     /// Return the first immediate child [`Element`] with the given tag name. Return an error if no
     /// such child is present.
-    pub(crate) fn get(&self, tag_name: &str) -> Result<&Element, ParseError> {
-        self.find(tag_name).ok_or(ParseError::ElementNotFound)
+    pub(crate) fn get_child(&self, tag_name: &str) -> Result<&Element, ParseError> {
+        self.find_child(tag_name).ok_or(ParseError::ElementNotFound)
+    }
+    
+    /// Search for the given attribute and return it or `None`.
+    pub(crate) fn find_attr(&self, key: &str) -> Option<&String> {
+        self.attributes.get(key)
+    }
+    
+    /// Return the value for the attribute with the given name. Return an error if no such attribute
+    /// is present.
+    pub(crate) fn get_attr(&self, key: &str) -> Result<&String, ParseError> {
+        self.find_attr(key).ok_or(ParseError::AttributeNotFound)
     }
 }
 
 /// Searches for an immediate child element with the given name. Returns a reference to the element
 /// if present. If `elem` is `None` or the child element is not found, returns `None`.
 pub(crate) fn child_or_none<'a>(elem: Option<&'a Element>, child_name: &str) -> Option<&'a Element> {
-    elem?.find(child_name)
+    elem?.find_child(child_name)
 }
 
 pub(crate) fn text_or_none(elem: Option<&Element>) -> Option<&str> {
