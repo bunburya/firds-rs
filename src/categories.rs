@@ -176,6 +176,12 @@ pub enum TransactionType {
     #[strum(serialize = "OTHR")]
     Other,
 }
+impl FromXml for TransactionType {
+    /// Parse a `TxTp` XML element from FIRDS data into a [`TransactionType`] enum.
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self::from_str(&elem.text)?)
+    }
+}
 
 /// Represents the final price type of a derivative.
 #[derive(Debug, EnumString, Display)]
@@ -194,6 +200,13 @@ pub enum FinalPriceType {
     Platts,
     #[strum(serialize = "OTHR")]
     Other,
+}
+
+impl FromXml for FinalPriceType {
+    /// Parse a `FnlPricTp` XML element from FIRDS data into a [`FinalPriceType`] enum.
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self::from_str(&elem.text)?)
+    }
 }
 
 /// Represents the type of FX.

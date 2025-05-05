@@ -1,6 +1,6 @@
 use crate::categories::{DebtSeniority, DeliveryType, FinalPriceType, FxType, IndexName, IndexTermUnit, OptionExerciseStyle, OptionType, StrikePriceType, TransactionType};
 use crate::error::ParseError;
-use crate::product::{BaseProduct, FurtherSubProduct, SubProduct};
+use crate::product::BaseProduct;
 use crate::xml_utils::{child_or_none, date_or_none, datetime_or_none, text_or_none, Element};
 use chrono::{DateTime, NaiveDate, Utc};
 use std::str::FromStr;
@@ -293,15 +293,36 @@ impl FromXml for DebtAttributes {
 #[derive(Debug)]
 struct CommodityDerivativeAttributes {
     /// The base product for the underlying asset class.
-    base_product: BaseProduct,
-    /// The sub-product for the underlying asset class.
-    sub_product: Option<SubProduct>,
-    /// The further sub-product (ie, sub-sub-product) for the underlying asset class.
-    further_sub_product: Option<FurtherSubProduct>,
+    product: BaseProduct,
     /// The transaction type as specified by the trading venue.
     transaction_type: Option<TransactionType>,
     /// The final price type as specified by the trading venue.
     final_price_type: Option<FinalPriceType>,
+}
+
+impl FromXml for CommodityDerivativeAttributes {
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        // Normal structure is `Pdct/<base product>/<sub product>/BasePdct`, but if the base product
+        // does not have an associated sub product then structure will be
+        // `Pdct/<base product>/BasePdct`. So we first check for `BasePdct` two levels down, if it's
+        // not there we check one level down. We also know at that point that there is no sub
+        // product (and therefore no further sub product) associated.
+        let prod_elem = elem.get_child("Pdct")?;
+        let child = prod_elem.get_first_child()?;
+        let product = if let Ok(p) = BaseProduct::from_xml(child) {
+            p
+        } else {
+            BaseProduct::from_xml(
+                child.get_first_child()?
+            )?
+        };
+        Ok(Self {
+            product,
+            transaction_type: TransactionType::from_xml_option(elem.find_child("TxTp"))?,
+            final_price_type: FinalPriceType::from_xml_option(elem.find_child("FnlPricTp"))?  
+        })
+        
+    }
 }
 
 /// Additional reference data for an interest rate derivative instrument.
@@ -443,7 +464,7 @@ struct ReferenceData {
 }
 #[cfg(test)]
 mod tests {
-    use crate::model::{DebtAttributes, FromXml, Index, InterestRate, PublicationPeriod, StrikePrice, TechnicalAttributes, TradingVenueAttributes};
+    use crate::model::{CommodityDerivativeAttributes, DebtAttributes, FromXml, Index, InterestRate, PublicationPeriod, StrikePrice, TechnicalAttributes, TradingVenueAttributes};
     use crate::xml_utils::Element;
     use quick_xml::events::Event;
     use quick_xml::NsReader;
@@ -674,6 +695,22 @@ mod tests {
             ("FULINS_S_20250201_03of05.xml", 0),
             ("FULINS_H_20250201_01of02.xml", 0),
             ("FULINS_R_20250201_08of08.xml", 0),
+        ])
+    }
+    
+    #[test]
+    fn test_parse_commodity_attrs() {
+        test_parsing_xml::<CommodityDerivativeAttributes>("Cmmdty", vec![
+            ("FULINS_D_20250201_02of03.xml", 2679),
+            ("FULINS_O_20250201_01of03.xml", 0),
+            ("FULINS_C_20250201_01of01.xml", 0),
+            ("FULINS_S_20250201_01of05.xml", 0),
+            ("FULINS_D_20250201_03of03.xml", 0),
+            ("FULINS_S_20250201_04of05.xml", 0),
+            ("FULINS_S_20250201_03of05.xml", 0),
+            ("FULINS_H_20250201_01of02.xml", 0),
+            ("FULINS_R_20250201_08of08.xml", 47465),
+            ("FULINS_R_20250201_02of08.xml", 56826),
         ])
     }
 }

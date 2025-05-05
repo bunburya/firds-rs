@@ -86,6 +86,27 @@ impl Element {
         None
     }
     
+    /// Find the first descendant of this element with the given tag name, if any, searching
+    /// recursively. If `left_only` is true, only the leftmost branch of the tree is searched (ie,
+    /// the first child of each element).
+    pub(crate) fn find_descendant(&self, tag_name: &str, left_only: bool) -> Option<&Element> {
+        if left_only {
+            let child = self.children.first()?;
+            if child.name == tag_name {
+                Some(child)
+            } else {
+                child.find_descendant(tag_name, left_only)
+            }
+        } else {
+            for child in &self.children {
+                if let Some(c) = child.find_descendant(tag_name, left_only) {
+                    return Some(c)
+                }
+            }
+            None
+        }
+    }
+    
     /// Return the first immediate child [`Element`] with the given tag name. Return an error if no
     /// such child is present.
     pub(crate) fn get_child(&self, tag_name: &str) -> Result<&Element, ParseError> {
@@ -101,6 +122,16 @@ impl Element {
     /// is present.
     pub(crate) fn get_attr(&self, key: &str) -> Result<&String, ParseError> {
         self.find_attr(key).ok_or(ParseError::AttributeNotFound)
+    }
+    
+    /// Return the first child element, or `None`, if the element has no children.
+    pub(crate) fn find_first_child(&self) -> Option<&Element> {
+        self.children.first()
+    }
+    
+    /// Return the first child element, or an error if the element has no children.
+    pub(crate) fn get_first_child(&self) -> Result<&Element, ParseError> {
+        self.find_first_child().ok_or(ParseError::ElementNotFound)
     }
 }
 

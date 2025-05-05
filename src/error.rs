@@ -3,9 +3,11 @@ use quick_xml::events::attributes::AttrError;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::ParseBoolError;
 
+#[derive(Debug)]
 pub enum ProductParseError {
     NoSubProduct,
-    BadSubProduct
+    BadSubProduct,
+    BadProduct
 }
 
 impl From<strum::ParseError> for ProductParseError {
@@ -37,7 +39,9 @@ pub enum ParseError {
     /// Element had no text where some was expected.
     TextNotFound,
     /// Something returned [`None`] when we expected [`Some`].
-    NoneFound
+    NoneFound,
+    /// Error parsing a commodity product.
+    Product(ProductParseError)
 }
 
 impl From<AttrError> for ParseError {
@@ -79,5 +83,11 @@ impl From<chrono::ParseError> for ParseError {
 impl From<strum::ParseError> for ParseError {
     fn from(e: strum::ParseError) -> Self {
         Self::Enum(e)
+    }
+}
+
+impl From<ProductParseError> for ParseError {
+    fn from(e: ProductParseError) -> Self {
+        Self::Product(e)
     }
 }

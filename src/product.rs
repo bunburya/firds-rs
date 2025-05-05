@@ -1,29 +1,60 @@
+use crate::error::{ParseError, ProductParseError};
 use strum_macros::{Display, EnumString};
+use crate::model::FromXml;
+use crate::xml_utils::{text_or_none, Element};
+
+/// Verifies that `fsp` is not `None`, and then calls the given function on the `&str` wrapped by
+/// `fsp`. Used to conveniently construct subproduct enum members which require an associated
+/// [`FurtherSubProduct`].
+fn with_fsp_or_err<T>(
+    fsp: Option<&str>,
+    func: fn(&str) -> Result<T, ProductParseError>
+) -> Result<T, ProductParseError> {
+    if let Some(fsp) = fsp {
+        func(fsp)
+    } else {
+        Err(ProductParseError::NoSubProduct)
+    }
+}
+
+/// Verifies that `fsp` is `None` and, if so, returns `sp`. Used to check that we have not
+/// encountered a further subproduct code when dealing with a subproduct that does not expect one.
+fn without_fsp_or_err<T>(sp: T, fsp: Option<&str>) -> Result<T, ProductParseError> {
+    if fsp.is_some() {
+        Err(ProductParseError::BadSubProduct)
+    } else {
+        Ok(sp)
+    }
+}
+
+trait SubProduct {
+    fn try_from_codes(sub_prod: &str, further_sub_prod: Option<&str>) 
+        -> Result<Self, ProductParseError> where Self: Sized;
+}
 
 /// Classification of commodity and emission allowances derivatives.
-/// https://ec.europa.eu/finance/securities/docs/isd/mifid/rts/160714-rts-23-annex_en.pdf
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, Display)]
 pub enum BaseProduct {
     #[strum(serialize = "AGRI")]
-    Agricultural,
+    Agricultural(AgriculturalSubProduct),
     #[strum(serialize = "NRGY")]
-    Energy,
+    Energy(EnergySubProduct),
     #[strum(serialize = "ENVR")]
-    Environmental,
+    Environmental(EnvironmentalSubProduct),
     #[strum(serialize = "FRGT")]
-    Freight,
+    Freight(FreightSubProduct),
     #[strum(serialize = "FRTL")]
-    Fertilizer,
+    Fertilizer(FertilizerSubProduct),
     #[strum(serialize = "INDP")]
-    IndustrialProducts,
+    IndustrialProducts(IndustrialProductsSubProduct),
     #[strum(serialize = "METL")]
-    Metals,
+    Metals(MetalsSubProduct),
     #[strum(serialize = "MCEX")]
     MultiCommodityExotic,
     #[strum(serialize = "PAPR")]
-    Paper,
+    Paper(PaperSubProduct),
     #[strum(serialize = "POLY")]
-    Polypropylene,
+    Polypropylene(PolypropyleneSubProduct),
     #[strum(serialize = "INFL")]
     Inflation,
     #[strum(serialize = "OEST")]
@@ -34,41 +65,123 @@ pub enum BaseProduct {
     /// trading venues and investment firms in respect of bonds, structured finance products,
     /// emission allowances and derivatives)
     #[strum(serialize = "OTHC")]
-    OtherC10,
+    OtherC10(OtherC10SubProduct),
     #[strum(serialize = "OTHR")]
     Other,
 }
 
-/// Sub-classification of products.
-#[derive(Debug, EnumString, Display)]
-pub enum SubProduct {
-    // Agricultural (AGRI)
-    #[strum(serialize = "GROS")]
-    GrainsAndOilSeeds,
-    #[strum(serialize = "SOFT")]
-    Softs,
-    #[strum(serialize = "POTA")]
-    Potato,
-    #[strum(serialize = "OOLI")]
-    OliveOil,
-    #[strum(serialize = "DIRY")]
-    Dairy,
-    #[strum(serialize = "FRST")]
-    Forestry,
-    #[strum(serialize = "SEAF")]
-    Seafood,
-    #[strum(serialize = "LSTK")]
-    Livestock,
-    #[strum(serialize = "GRIN")]
-    Grain,
+impl BaseProduct {
+    pub(crate) fn try_from_codes(prod: &str, sub_prod: Option<&str>, further_sub_prod: Option<&str>) -> Result<Self, ProductParseError> {
+        if let Some(sp) = sub_prod {
+            match prod {
+                "AGRI" => Ok(Self::Agricultural(
+                    AgriculturalSubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "NRGY" => Ok(Self::Energy(
+                    EnergySubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "ENVR" => Ok(Self::Environmental(
+                    EnvironmentalSubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "FRGT" => Ok(Self::Freight(
+                    FreightSubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "FRTL" => Ok(Self::Fertilizer(
+                    FertilizerSubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "INDP" => Ok(Self::IndustrialProducts(
+                    IndustrialProductsSubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "METL" => Ok(Self::Metals(
+                    MetalsSubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "PAPR" => Ok(Self::Paper(
+                    PaperSubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "POLY" => Ok(Self::Polypropylene(
+                    PolypropyleneSubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                "OTHC" => Ok(Self::OtherC10(
+                    OtherC10SubProduct::try_from_codes(sp, further_sub_prod)?
+                )),
+                _ => Err(ProductParseError::BadSubProduct)
+            }
+        } else {
+            match prod {
+                "MCEX" => Ok(Self::MultiCommodityExotic),
+                "INFL" => Ok(Self::Inflation),
+                "OEST" => Ok(Self::OfficialEconomicStatistics),
+                "OTHR" => Ok(Self::Other),
+                _ => Err(ProductParseError::BadProduct)
+            }
+        }
+    }
+}
 
-    // Energy (NRGY)
+impl FromXml for BaseProduct {
+    /// Parse an appropriate XML element into a [`BaseProduct`] enum. The XML element can be of any
+    /// kind that contains at least a `BasePdct` element and optionally `SubPdct` and `AddtlSubPdct`
+    /// elements.
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self::try_from_codes(
+            &elem.get_child("BasePdct")?.text,
+            text_or_none(elem.find_child("SubPdct")),
+            text_or_none(elem.find_child("AddtlSubPdct")),
+        )?)
+    }
+}
+
+/// Sub-classification of products.
+#[derive(Debug, Display)]
+pub enum AgriculturalSubProduct {
+    GrainsAndOilSeeds(GrainsAndOilSeedsFurtherSubProduct),
+    Softs(SoftsFurtherSubProduct),
+    Potato,
+    OliveOil(OliveOilFurtherSubProduct),
+    Dairy,
+    Forestry,
+    Seafood,
+    Livestock,
+    Grain(GrainFurtherSubProduct),
+}
+
+impl SubProduct for AgriculturalSubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product {
+            "GROS" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::GrainsAndOilSeeds(GrainsAndOilSeedsFurtherSubProduct::try_from(fsp)?))
+            }),
+            "SOFT" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::Softs(SoftsFurtherSubProduct::try_from(fsp)?))
+            }),
+            "POTA" => without_fsp_or_err(Self::Potato, further_sub_product),
+            "OOLI" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::OliveOil(OliveOilFurtherSubProduct::try_from(fsp)?))
+            }),
+            "DIRY" => without_fsp_or_err(Self::Dairy, further_sub_product),
+            "FRST" => without_fsp_or_err(Self::Forestry, further_sub_product),
+            "SEAF" => without_fsp_or_err(Self::Seafood, further_sub_product),
+            "LSTK" => without_fsp_or_err(Self::Livestock, further_sub_product),
+            "GRIN" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::Grain(GrainFurtherSubProduct::try_from(fsp)?))
+            }),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+
+#[derive(Debug, Display)]
+pub enum EnergySubProduct {
     #[strum(serialize = "ELEC")]
-    Electricity,
+    Electricity(ElectricityFurtherSubProduct),
     #[strum(serialize = "NGAS")]
-    NaturalGas,
+    NaturalGas(NaturalGasFurtherSubProduct),
     #[strum(serialize = "OILP")]
-    Oil,
+    Oil(OilFurtherSubProduct),
     #[strum(serialize = "COAL")]
     Coal,
     #[strum(serialize = "INRG")]
@@ -79,24 +192,86 @@ pub enum SubProduct {
     LightEnds,
     #[strum(serialize = "DIST")]
     Distillates,
+}
 
-    // Environmental (ENVR)
+impl SubProduct for EnergySubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product {
+            "ELEC" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::Electricity(ElectricityFurtherSubProduct::try_from(fsp)?))
+            }),
+            "NGAS" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::NaturalGas(NaturalGasFurtherSubProduct::try_from(fsp)?))
+            }),
+            "OILP" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::Oil(OilFurtherSubProduct::try_from(fsp)?))
+            }),
+            "COAL" => without_fsp_or_err(Self::Coal, further_sub_product),
+            "INRG" => without_fsp_or_err(Self::InterEnergy, further_sub_product),
+            "RNNG" => without_fsp_or_err(Self::RenewableEnergy, further_sub_product),
+            "LGHT" => without_fsp_or_err(Self::LightEnds, further_sub_product),
+            "DIST" => without_fsp_or_err(Self::Distillates, further_sub_product),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum EnvironmentalSubProduct {
     #[strum(serialize = "EMIS")]
-    Emissions,
+    Emissions(EmissionsFurtherSubProduct),
     #[strum(serialize = "WTHR")]
     Weather,
     #[strum(serialize = "CRBR")]
     CarbonRelated,
+}
 
-    // Freight (FRGT)
-    #[strum(serialize = "WETF")]
-    Wet,
-    #[strum(serialize = "DRYF")]
-    Dry,
-    #[strum(serialize = "CSHP")]
+impl SubProduct for EnvironmentalSubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product {
+            "EMIS" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::Emissions(EmissionsFurtherSubProduct::try_from(fsp)?))
+            }),
+            "WTHR" => without_fsp_or_err(Self::Weather, further_sub_product),
+            "CRBR" => without_fsp_or_err(Self::CarbonRelated, further_sub_product),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum FreightSubProduct {
+    Wet(WetFreightFurtherSubProduct),
+    Dry(DryFreightFurtherSubProduct),
     ContainerShips,
+}
 
-    // Fertilizer (FRTL)
+impl SubProduct for FreightSubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product {
+            "WETF" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::Wet(WetFreightFurtherSubProduct::try_from(fsp)?))
+            }),
+            "DRYF" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::Dry(DryFreightFurtherSubProduct::try_from(fsp)?))
+            }),
+            "CSHP" => without_fsp_or_err(Self::ContainerShips, further_sub_product),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum FertilizerSubProduct {
     #[strum(serialize = "AMMO")]
     Ammonia,
     #[strum(serialize = "DAPH")]
@@ -109,44 +284,135 @@ pub enum SubProduct {
     Urea,
     #[strum(serialize = "UAAN")]
     Uan,
+}
 
-    // Industrial Products (INDP)
+impl SubProduct for FertilizerSubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product {
+            "AMMO" => without_fsp_or_err(Self::Ammonia, further_sub_product),
+            "DAPH" => without_fsp_or_err(Self::Dap, further_sub_product),
+            "PTSH" => without_fsp_or_err(Self::Potash, further_sub_product),
+            "SLPH" => without_fsp_or_err(Self::Sulphur, further_sub_product),
+            "UREA" => without_fsp_or_err(Self::Urea, further_sub_product),
+            "UAAN" => without_fsp_or_err(Self::Uan, further_sub_product),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+#[derive(Debug, EnumString, Display)]
+pub enum IndustrialProductsSubProduct {
     #[strum(serialize = "CSTR")]
     Construction,
     #[strum(serialize = "MFTG")]
     Manufacturing,
+}
 
-    // Metals (METL)
+impl SubProduct for IndustrialProductsSubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product { 
+            "CSTR" => without_fsp_or_err(Self::Construction, further_sub_product),
+            "MFTG" => without_fsp_or_err(Self::Manufacturing, further_sub_product),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum MetalsSubProduct {
     #[strum(serialize = "NPRM")]
-    NonPrecious,
+    NonPrecious(NonPreciousMetalsFurtherSubProduct),
     #[strum(serialize = "PRME")]
-    Precious,
+    Precious(PreciousMetalsFurtherSubProduct),
+}
 
-    // Paper (PAPR)
-    #[strum(serialize = "CBRD")]
+impl SubProduct for MetalsSubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product { 
+            "NPRM" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::NonPrecious(NonPreciousMetalsFurtherSubProduct::try_from(fsp)?))
+            }),
+            "PRME" => with_fsp_or_err(further_sub_product, |fsp| {
+                Ok(Self::Precious(PreciousMetalsFurtherSubProduct::try_from(fsp)?))
+            }),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum PaperSubProduct {
     Containerboard,
-    #[strum(serialize = "NSPT")]
     Newsprint,
-    #[strum(serialize = "PULP")]
     Pulp,
-    #[strum(serialize = "RCVP")]
     RecoveredPaper,
+}
 
-    // Polypropylene (POLY)
-    #[strum(serialize = "PLST")]
+impl SubProduct for PaperSubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product { 
+            "CBRD" => without_fsp_or_err(Self::Containerboard, further_sub_product),
+            "NSPT" => without_fsp_or_err(Self::Newsprint, further_sub_product),
+            "PULP" => without_fsp_or_err(Self::Pulp, further_sub_product),
+            "RCVP" => without_fsp_or_err(Self::RecoveredPaper, further_sub_product),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+#[derive(Debug, Display)]
+pub enum PolypropyleneSubProduct {
     Plastic,
+}
 
-    // Other Commodity (OTHC)
+impl SubProduct for PolypropyleneSubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product { 
+            "PLST" => without_fsp_or_err(Self::Plastic, further_sub_product),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
+#[derive(Debug, EnumString, Display)]
+pub enum OtherC10SubProduct {
     #[strum(serialize = "DLVR")]
     Deliverable,
     #[strum(serialize = "NDLV")]
     NonDeliverable,
 }
 
+impl SubProduct for OtherC10SubProduct {
+    fn try_from_codes(
+        sub_product: &str,
+        further_sub_product: Option<&str>
+    ) -> Result<Self, ProductParseError> {
+        match sub_product {
+            "DLVR" => without_fsp_or_err(Self::Deliverable, further_sub_product),
+            "NDLV" => without_fsp_or_err(Self::NonDeliverable, further_sub_product),
+            _ => Err(ProductParseError::BadSubProduct)
+        }
+    }
+}
+
 /// Further sub-classifications of products.
 #[derive(Debug, EnumString, Display)]
-pub enum FurtherSubProduct {
-    // Grains (GROS)
+pub enum GrainsAndOilSeedsFurtherSubProduct {
     #[strum(serialize = "FWHT")]
     FeedWheat,
     #[strum(serialize = "SOYB")]
@@ -157,8 +423,12 @@ pub enum FurtherSubProduct {
     Rapeseed,
     #[strum(serialize = "RICE")]
     Rice,
+    #[strum(serialize = "OTHR")]
+    Other,
+}
 
-    // Softs (SOFT)
+#[derive(Debug, EnumString, Display)]
+pub enum SoftsFurtherSubProduct {
     #[strum(serialize = "CCOA")]
     Cocoa,
     #[strum(serialize = "ROBU")]
@@ -167,16 +437,24 @@ pub enum FurtherSubProduct {
     WhiteSugar,
     #[strum(serialize = "BRWN")]
     RawSugar,
+    #[strum(serialize = "OTHR")]
+    Other,
+}
 
-    // Olive Oil (OOLI)
+#[derive(Debug, EnumString, Display)]
+pub enum OliveOilFurtherSubProduct {
     #[strum(serialize = "LAMP")]
     Lampante,
+}
 
-    // Grain (GRIN)
+#[derive(Debug, EnumString, Display)]
+pub enum GrainFurtherSubProduct {
     #[strum(serialize = "MWHT")]
     MillingWheat,
+}
 
-    // Electricity (ELEC)
+#[derive(Debug, EnumString, Display)]
+pub enum ElectricityFurtherSubProduct {
     #[strum(serialize = "BSLD")]
     BaseLoad,
     #[strum(serialize = "FITR")]
@@ -185,8 +463,12 @@ pub enum FurtherSubProduct {
     PeakLoad,
     #[strum(serialize = "OFFP")]
     OffPeak,
+    #[strum(serialize = "OTHR")]
+    Other,
+}
 
-    // Natural Gas (NGAS)
+#[derive(Debug, EnumString, Display)]
+pub enum NaturalGasFurtherSubProduct {
     #[strum(serialize = "GASP")]
     Gaspool,
     #[strum(serialize = "LNGG")]
@@ -197,8 +479,10 @@ pub enum FurtherSubProduct {
     Ncg,
     #[strum(serialize = "TTFG")]
     Ttf,
+}
 
-    // Oil (OILP)
+#[derive(Debug, EnumString, Display)]
+pub enum OilFurtherSubProduct {
     #[strum(serialize = "BAKK")]
     Bakken,
     #[strum(serialize = "BDSL")]
@@ -247,8 +531,10 @@ pub enum FurtherSubProduct {
     Urals,
     #[strum(serialize = "WTIO")]
     Wti,
+}
 
-    // Emissions (EMIS)
+#[derive(Debug, EnumString, Display)]
+pub enum EmissionsFurtherSubProduct {
     #[strum(serialize = "CERE")]
     Cer,
     #[strum(serialize = "ERUE")]
@@ -257,16 +543,24 @@ pub enum FurtherSubProduct {
     Euae,
     #[strum(serialize = "EUAA")]
     Euaa,
+    #[strum(serialize = "OTHR")]
+    Other,
+}
 
-    // Wet Freight (WETF)
+#[derive(Debug, EnumString, Display)]
+pub enum WetFreightFurtherSubProduct {
     #[strum(serialize = "TNKR")]
     Tankers,
+}
 
-    // Dry Freight (DRYF)
+#[derive(Debug, EnumString, Display)]
+pub enum DryFreightFurtherSubProduct {
     #[strum(serialize = "DBCR")]
     DryBulkCarriers,
+}
 
-    // Non-Precious Metals (NPRM)
+#[derive(Debug, EnumString, Display)]
+pub enum NonPreciousMetalsFurtherSubProduct {
     #[strum(serialize = "ALUM")]
     Aluminium,
     #[strum(serialize = "ALUA")]
@@ -291,8 +585,12 @@ pub enum FurtherSubProduct {
     Tin,
     #[strum(serialize = "ZINC")]
     Zinc,
+    #[strum(serialize = "OTHR")]
+    Other,
+}
 
-    // Precious Metals (PRME)
+#[derive(Debug, EnumString, Display)]
+pub enum PreciousMetalsFurtherSubProduct {
     #[strum(serialize = "GOLD")]
     Gold,
     #[strum(serialize = "SLVR")]
@@ -301,8 +599,6 @@ pub enum FurtherSubProduct {
     Platinum,
     #[strum(serialize = "PLDM")]
     Palladium,
-
-    // Other
     #[strum(serialize = "OTHR")]
     Other,
 }
