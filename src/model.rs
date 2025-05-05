@@ -1,7 +1,7 @@
 use crate::categories::{DebtSeniority, DeliveryType, FinalPriceType, FxType, IndexName, IndexTermUnit, OptionExerciseStyle, OptionType, StrikePriceType, TransactionType};
 use crate::error::ParseError;
 use crate::product::BaseProduct;
-use crate::xml_utils::{child_or_none, date_or_none, datetime_or_none, text_or_none, Element};
+use crate::xml_utils::{child_or_none, date_or_none, datetime_or_none, parse_or_none, text_or_none, Element};
 use chrono::{DateTime, NaiveDate, Utc};
 use std::str::FromStr;
 
@@ -174,24 +174,27 @@ enum InterestRate {
     /// Fixed interest rate, expressed as a percentage (eg, 7.5 means 7.5%).
     Fixed(f64),
     /// Floating interest rate, insisting of an [`Index`] (representing the benchmark) and a spread
-    /// expressed as an integer number of basis points.
-    Floating(Index, i32)
+    /// expressed as an integer number of basis points (if applicable).
+    /// 
+    /// In the FIRDS data, some interest rates specify a basis point spread, whereas others specify
+    /// the rate only. This variant is intended to represent both, which is why the spread is
+    /// optional.
+    Floating(Index, Option<i32>)
 }
 
 impl FromXml for InterestRate {
 
     /// Parse an `IntrstRate` XML element from FIRDS data into an [`InterestRate`] struct.
-    ///
-    /// The element should be an `IntrstRate` element or equivalent. Specifically it should be an
-    /// element of type `InterestRate6Choice` as defined in the FULINS XSD file (not
-    /// `FloatingInterestRate8` which appears with the same tag for certain interest rate
-    /// derivatives).
+    /// 
+    /// This is designed to work with `IntrstRate` elements of types `InterestRate6Choice` and
+    /// `FloatingInterestRate8`. The difference is that the former specifies a basis point spread
+    /// whereas the latter does not.
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
         
         Ok(if let Some(fltg) = elem.find_child("Fltg") {
             Self::Floating(
                 Index::from_xml(fltg)?,
-                fltg.get_child("BsisPtSprd")?.text.parse::<i32>()?
+                parse_or_none::<i32>(fltg.find_child("BsisPtSprd"))?
             )
         } else {
             Self::Fixed(elem.get_child("Fxd")?.text.parse::<f64>()?)
@@ -319,7 +322,7 @@ impl FromXml for CommodityDerivativeAttributes {
         Ok(Self {
             product,
             transaction_type: TransactionType::from_xml_option(elem.find_child("TxTp"))?,
-            final_price_type: FinalPriceType::from_xml_option(elem.find_child("FnlPricTp"))?  
+            final_price_type: FinalPriceType::from_xml_option(elem.find_child("FnlPricTp"))?
         })
         
     }
@@ -330,17 +333,27 @@ impl FromXml for CommodityDerivativeAttributes {
 struct InterestRateDerivativeAttributes {
     /// The reference rate.
     reference_rate: Index,
+    /// The interest rate of leg 1 of the trade, if applicable.
+    interest_rate_1: Option<InterestRate>,
     /// In the case of multi-currency or cross-currency swaps the currency
     /// in which leg 2 of the contract is denominated. For swaptions where
     /// the underlying swap is multi-currency, the currency in which leg 2
     /// of the swap is denominated.
     notional_currency_2: Option<String>,
-    /// The fixed rate of leg 1 of the trade, if applicable. Expressed as a percentage.
-    fixed_rate_1: Option<f64>,
     /// The fixed rate of leg 2 of the trade, if applicable. Expressed as a percentage.
-    fixed_rate_2: Option<f64>,
-    /// The floating rate of leg 2 of the trade, if applicable.
-    floating_rate_2: Option<Index>,
+    interest_rate_2: Option<InterestRate>,
+}
+
+impl FromXml for InterestRateDerivativeAttributes {
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        //println!("{elem:?}");
+        Ok(Self {
+            reference_rate: Index::from_xml(elem.get_child("IntrstRate")?)?,
+            interest_rate_1: InterestRate::from_xml_option(elem.find_child("FirstLegIntrstRate"))?,
+            notional_currency_2: text_or_none(elem.find_child("OtherNtnlCcy")).map(String::from),
+            interest_rate_2: InterestRate::from_xml_option(elem.find_child("OthrLegIntrstRate"))?
+        })
+    }
 }
 
 /// Additional reference data for a foreign exchange derivative instrument.
@@ -464,7 +477,7 @@ struct ReferenceData {
 }
 #[cfg(test)]
 mod tests {
-    use crate::model::{CommodityDerivativeAttributes, DebtAttributes, FromXml, Index, InterestRate, PublicationPeriod, StrikePrice, TechnicalAttributes, TradingVenueAttributes};
+    use crate::model::{CommodityDerivativeAttributes, DebtAttributes, FromXml, Index, InterestRate, InterestRateDerivativeAttributes, PublicationPeriod, StrikePrice, TechnicalAttributes, TradingVenueAttributes};
     use crate::xml_utils::Element;
     use quick_xml::events::Event;
     use quick_xml::NsReader;
@@ -711,6 +724,23 @@ mod tests {
             ("FULINS_H_20250201_01of02.xml", 0),
             ("FULINS_R_20250201_08of08.xml", 47465),
             ("FULINS_R_20250201_02of08.xml", 56826),
+        ])
+    }
+    
+    #[test]
+    fn test_parse_ir_attrs() {
+        test_parsing_xml::<InterestRateDerivativeAttributes>("Intrst", vec![
+            ("FULINS_D_20250201_02of03.xml", 0),
+            ("FULINS_O_20250201_01of03.xml", 0),
+            ("FULINS_C_20250201_01of01.xml", 0),
+            ("FULINS_S_20250201_01of05.xml", 26),
+            ("FULINS_D_20250201_03of03.xml", 0),
+            ("FULINS_S_20250201_04of05.xml", 500000),
+            ("FULINS_S_20250201_03of05.xml", 361917),
+            ("FULINS_H_20250201_01of02.xml", 211932),
+            ("FULINS_R_20250201_08of08.xml", 0),
+            ("FULINS_R_20250201_02of08.xml", 0),
+            ("FULINS_R_20250201_07of08.xml", 0),
         ])
     }
 }

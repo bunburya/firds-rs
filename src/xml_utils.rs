@@ -3,7 +3,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::NsReader;
 use std::collections::HashMap;
-
+use std::str::FromStr;
 
 #[derive(Debug)]
 pub(crate) struct Element {
@@ -166,6 +166,15 @@ pub(crate) fn date_or_none(elem: Option<&Element>) -> Result<Option<NaiveDate>, 
             Ok(date) => Ok(Some(date)),
             Err(e) => Err(ParseError::DateTime(e))
         }
+    } else {
+        Ok(None)
+    }
+}
+
+pub(crate) fn parse_or_none<T: FromStr>(elem: Option<&Element>) -> Result<Option<T>, ParseError> 
+where ParseError: From<<T as FromStr>::Err> {
+    if let Some(elem) = elem {
+        Ok(Some(elem.text.parse::<T>()?))
     } else {
         Ok(None)
     }
