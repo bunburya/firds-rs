@@ -8,7 +8,7 @@ use crate::xml_utils::Element;
 
 /// Represents the unit of time in which the term is expressed (days, weeks, months, or years).
 #[derive(Debug, EnumString, Display)]
-pub enum IndexTermUnit {
+pub enum TermUnit {
     #[strum(serialize = "DAYS")]
     Days,
     #[strum(serialize = "WEEK")]
@@ -218,6 +218,12 @@ pub enum FxType {
     EmergingMarkets,
     #[strum(serialize = "FXMJ")]
     Majors,
+}
+
+impl FromXml for FxType {
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self::from_str(&elem.text)?)
+    }
 }
 
 /// Represents the type of strike price.

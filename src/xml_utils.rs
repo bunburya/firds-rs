@@ -7,7 +7,7 @@ use std::str::FromStr;
 
 #[derive(Debug)]
 pub(crate) struct Element {
-    name: String,
+    pub(crate) name: String,
     attributes: HashMap<String, String>,
     children: Vec<Element>,
     pub(crate) text: String,
@@ -132,6 +132,11 @@ impl Element {
     /// Return the first child element, or an error if the element has no children.
     pub(crate) fn get_first_child(&self) -> Result<&Element, ParseError> {
         self.find_first_child().ok_or(ParseError::ElementNotFound)
+    }
+    
+    /// Return an iterator over the element's children.
+    pub(crate) fn iter_children(&self) -> impl Iterator<Item = &Element> {
+        self.children.iter()
     }
 }
 

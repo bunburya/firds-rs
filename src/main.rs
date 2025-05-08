@@ -3,7 +3,7 @@ use std::io::BufReader;
 use quick_xml::events::Event;
 use quick_xml::NsReader;
 use crate::error::ParseError;
-use crate::model::{FromXml, IndexTerm};
+use crate::model::{FromXml, Term};
 
 mod xml_utils;
 mod error;
@@ -27,7 +27,7 @@ fn main() -> Result<(), ParseError> {
                 if tag_name == target_tag {
                     // 🧠 Found the tag we're interested in
                     let element = xml_utils::Element::parse_start(&mut xml_reader, e)?;
-                    let term = IndexTerm::from_xml(&element);
+                    let term = Term::from_xml(&element);
                     assert!(term.is_ok());
                     //println!("Parsed element tree: {:#?}", element);
                     parsed += 1;

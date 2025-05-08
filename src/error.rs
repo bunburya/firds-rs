@@ -20,20 +20,24 @@ impl From<strum::ParseError> for ProductParseError {
 pub enum ParseError {
     /// Error parsing XML attributes.
     Attr(AttrError),
-    /// Error parsing XML (other than attributes).
-    Xml(quick_xml::Error),
+    /// Error parsing XML using the `quick_xml` crate.
+    QuickXml(quick_xml::Error),
     /// Error parsing an integer from a string.
     Int(ParseIntError),
     /// Error parsing a float from a string.
     Float(ParseFloatError),
     /// Error parsing a bool from a string.
     Bool(ParseBoolError),
-    /// Error parsing an enum variant from a string.
-    Enum(strum::ParseError),
+    /// Error parsing an enum variant from a string using the `strum` library.
+    StrumEnum(strum::ParseError),
+    /// Error parsing an enum variant.
+    Enum,
     /// Error parsing a [`chrono::DateTime`] from a string.
     DateTime(chrono::ParseError),
     /// Could not find the desired [`Element`].
     ElementNotFound,
+    /// Found an element we did not expect.
+    UnexpectedElement,
     /// Element did not have the expected attribute
     AttributeNotFound,
     /// Element had no text where some was expected.
@@ -52,7 +56,7 @@ impl From<AttrError> for ParseError {
 
 impl From<quick_xml::Error> for ParseError {
     fn from(e: quick_xml::Error) -> Self {
-        Self::Xml(e)
+        Self::QuickXml(e)
     }
 }
 
@@ -82,7 +86,7 @@ impl From<chrono::ParseError> for ParseError {
 
 impl From<strum::ParseError> for ParseError {
     fn from(e: strum::ParseError) -> Self {
-        Self::Enum(e)
+        Self::StrumEnum(e)
     }
 }
 

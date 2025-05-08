@@ -1,3 +1,4 @@
+use std::str::FromStr;
 use crate::error::{ParseError, ProductParseError};
 use strum_macros::{Display, EnumString};
 use crate::model::FromXml;
@@ -24,6 +25,15 @@ fn without_fsp_or_err<T>(sp: T, fsp: Option<&str>) -> Result<T, ProductParseErro
         Err(ProductParseError::BadSubProduct)
     } else {
         Ok(sp)
+    }
+}
+
+fn optional_fsp<T: FromStr>(fsp: Option<&str>) -> Result<Option<T>, ProductParseError> 
+where ProductParseError: From<<T as FromStr>::Err> {
+    if let Some(s) = fsp {
+        Ok(Some(T::from_str(&s)?))
+    } else {
+        Ok(None)
     }
 }
 
@@ -127,7 +137,7 @@ impl FromXml for BaseProduct {
             &elem.get_child("BasePdct")?.text,
             text_or_none(elem.find_child("SubPdct")),
             text_or_none(elem.find_child("AddtlSubPdct")),
-        )?)
+        ).unwrap())
     }
 }
 
@@ -137,12 +147,12 @@ pub enum AgriculturalSubProduct {
     GrainsAndOilSeeds(GrainsAndOilSeedsFurtherSubProduct),
     Softs(SoftsFurtherSubProduct),
     Potato,
-    OliveOil(OliveOilFurtherSubProduct),
+    OliveOil(Option<OliveOilFurtherSubProduct>),
     Dairy,
     Forestry,
     Seafood,
     Livestock,
-    Grain(GrainFurtherSubProduct),
+    Grain(Option<GrainFurtherSubProduct>),
 }
 
 impl SubProduct for AgriculturalSubProduct {
@@ -158,16 +168,12 @@ impl SubProduct for AgriculturalSubProduct {
                 Ok(Self::Softs(SoftsFurtherSubProduct::try_from(fsp)?))
             }),
             "POTA" => without_fsp_or_err(Self::Potato, further_sub_product),
-            "OOLI" => with_fsp_or_err(further_sub_product, |fsp| {
-                Ok(Self::OliveOil(OliveOilFurtherSubProduct::try_from(fsp)?))
-            }),
+            "OOLI" => Ok(Self::OliveOil(optional_fsp(further_sub_product)?)),
             "DIRY" => without_fsp_or_err(Self::Dairy, further_sub_product),
             "FRST" => without_fsp_or_err(Self::Forestry, further_sub_product),
             "SEAF" => without_fsp_or_err(Self::Seafood, further_sub_product),
             "LSTK" => without_fsp_or_err(Self::Livestock, further_sub_product),
-            "GRIN" => with_fsp_or_err(further_sub_product, |fsp| {
-                Ok(Self::Grain(GrainFurtherSubProduct::try_from(fsp)?))
-            }),
+            "GRIN" => Ok(Self::Grain(optional_fsp(further_sub_product)?)),
             _ => Err(ProductParseError::BadSubProduct)
         }
     }
@@ -179,9 +185,9 @@ pub enum EnergySubProduct {
     #[strum(serialize = "ELEC")]
     Electricity(ElectricityFurtherSubProduct),
     #[strum(serialize = "NGAS")]
-    NaturalGas(NaturalGasFurtherSubProduct),
+    NaturalGas(Option<NaturalGasFurtherSubProduct>),
     #[strum(serialize = "OILP")]
-    Oil(OilFurtherSubProduct),
+    Oil(Option<OilFurtherSubProduct>),
     #[strum(serialize = "COAL")]
     Coal,
     #[strum(serialize = "INRG")]
@@ -203,12 +209,8 @@ impl SubProduct for EnergySubProduct {
             "ELEC" => with_fsp_or_err(further_sub_product, |fsp| {
                 Ok(Self::Electricity(ElectricityFurtherSubProduct::try_from(fsp)?))
             }),
-            "NGAS" => with_fsp_or_err(further_sub_product, |fsp| {
-                Ok(Self::NaturalGas(NaturalGasFurtherSubProduct::try_from(fsp)?))
-            }),
-            "OILP" => with_fsp_or_err(further_sub_product, |fsp| {
-                Ok(Self::Oil(OilFurtherSubProduct::try_from(fsp)?))
-            }),
+            "NGAS" => Ok(Self::NaturalGas(optional_fsp(further_sub_product)?)),
+            "OILP" => Ok(Self::Oil(optional_fsp(further_sub_product)?)),
             "COAL" => without_fsp_or_err(Self::Coal, further_sub_product),
             "INRG" => without_fsp_or_err(Self::InterEnergy, further_sub_product),
             "RNNG" => without_fsp_or_err(Self::RenewableEnergy, further_sub_product),
@@ -222,7 +224,7 @@ impl SubProduct for EnergySubProduct {
 #[derive(Debug, Display)]
 pub enum EnvironmentalSubProduct {
     #[strum(serialize = "EMIS")]
-    Emissions(EmissionsFurtherSubProduct),
+    Emissions(Option<EmissionsFurtherSubProduct>),
     #[strum(serialize = "WTHR")]
     Weather,
     #[strum(serialize = "CRBR")]
@@ -235,9 +237,7 @@ impl SubProduct for EnvironmentalSubProduct {
         further_sub_product: Option<&str>
     ) -> Result<Self, ProductParseError> {
         match sub_product {
-            "EMIS" => with_fsp_or_err(further_sub_product, |fsp| {
-                Ok(Self::Emissions(EmissionsFurtherSubProduct::try_from(fsp)?))
-            }),
+            "EMIS" => Ok(Self::Emissions(optional_fsp(further_sub_product)?)),
             "WTHR" => without_fsp_or_err(Self::Weather, further_sub_product),
             "CRBR" => without_fsp_or_err(Self::CarbonRelated, further_sub_product),
             _ => Err(ProductParseError::BadSubProduct)
@@ -247,8 +247,8 @@ impl SubProduct for EnvironmentalSubProduct {
 
 #[derive(Debug, Display)]
 pub enum FreightSubProduct {
-    Wet(WetFreightFurtherSubProduct),
-    Dry(DryFreightFurtherSubProduct),
+    Wet(Option<WetFreightFurtherSubProduct>),
+    Dry(Option<DryFreightFurtherSubProduct>),
     ContainerShips,
 }
 
@@ -258,12 +258,8 @@ impl SubProduct for FreightSubProduct {
         further_sub_product: Option<&str>
     ) -> Result<Self, ProductParseError> {
         match sub_product {
-            "WETF" => with_fsp_or_err(further_sub_product, |fsp| {
-                Ok(Self::Wet(WetFreightFurtherSubProduct::try_from(fsp)?))
-            }),
-            "DRYF" => with_fsp_or_err(further_sub_product, |fsp| {
-                Ok(Self::Dry(DryFreightFurtherSubProduct::try_from(fsp)?))
-            }),
+            "WETF" => Ok(Self::Wet(optional_fsp(further_sub_product)?)),
+            "DRYF" => Ok(Self::Dry(optional_fsp(further_sub_product)?)),
             "CSHP" => without_fsp_or_err(Self::ContainerShips, further_sub_product),
             _ => Err(ProductParseError::BadSubProduct)
         }
