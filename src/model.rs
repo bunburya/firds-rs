@@ -1,7 +1,8 @@
-use crate::categories::{DebtSeniority, DeliveryType, FinalPriceType, FxType, IndexName, TermUnit, OptionExerciseStyle, OptionType, StrikePriceType, TransactionType};
+use crate::categories::{DebtSeniority, DeliveryType, FinalPriceType, FxType, IndexName, OptionExerciseStyle, OptionType, StrikePriceType, TermUnit, TransactionType};
 use crate::error::ParseError;
+use crate::iter_xml::Element;
+use crate::parse_utils::{child_or_none, date_or_none, datetime_or_none, parse_or_none, text_or_none};
 use crate::product::BaseProduct;
-use crate::xml_utils::{child_or_none, date_or_none, datetime_or_none, parse_or_none, text_or_none, Element};
 use chrono::{DateTime, NaiveDate, Utc};
 use std::str::FromStr;
 
@@ -110,17 +111,17 @@ pub struct FloatingRate {
 impl FromXml for FloatingRate {
     /// Parse an XML element of type `FloatingInterestRate8` into a [`FloatingRate`] struct.
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        let ref_rate_elem = elem.get_child("RefRate").unwrap();
+        let ref_rate_elem = elem.get_child("RefRate")?;
         let name = if let Some(text) = text_or_none(ref_rate_elem.find_child("Indx")) {
-            Some(IndexName::from_str(text).unwrap())
+            Some(IndexName::from_str(text)?)
         } else if let Some(text) = text_or_none(ref_rate_elem.find_child("Nm")) {
-            Some(IndexName::from_str(text).unwrap())
+            Some(IndexName::from_str(text)?)
         } else {
             None
         };
         Ok(Self {
             name,
-            term: Term::from_xml_option(elem.find_child("Term")).unwrap()
+            term: Term::from_xml_option(elem.find_child("Term"))?
         })
     }
 }
@@ -322,19 +323,19 @@ impl FromXml for CommodityDerivativeAttributes {
         // `Pdct/<base product>/BasePdct`. So we first check for `BasePdct` two levels down, if it's
         // not there we check one level down. We also know at that point that there is no sub
         // product (and therefore no further sub product) associated.
-        let prod_elem = elem.get_child("Pdct").unwrap();
-        let child = prod_elem.get_first_child().unwrap();
+        let prod_elem = elem.get_child("Pdct")?;
+        let child = prod_elem.get_first_child()?;
         let product = if let Ok(p) = BaseProduct::from_xml(child) {
             p
         } else {
             BaseProduct::from_xml(
-                child.get_first_child().unwrap()
-            ).unwrap()
+                child.get_first_child()?
+            )?
         };
         Ok(Self {
             product,
-            transaction_type: TransactionType::from_xml_option(elem.find_child("TxTp")).unwrap(),
-            final_price_type: FinalPriceType::from_xml_option(elem.find_child("FnlPricTp")).unwrap()
+            transaction_type: TransactionType::from_xml_option(elem.find_child("TxTp"))?,
+            final_price_type: FinalPriceType::from_xml_option(elem.find_child("FnlPricTp"))?
         })
         
     }
@@ -411,10 +412,10 @@ enum UnderlyingSingle {
 impl FromXml for UnderlyingSingle {
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
         if let Some(child) = elem.find_first_child() {
-            match child.name.as_str() {
+            match child.local_name.as_str() {
                 "ISIN" => Ok(Self::Isin(child.text.to_owned())),
                 "LEI" => Ok(Self::Lei(child.text.to_owned())),
-                "Indx" => Ok(Self::Index(Index::from_xml(child).unwrap())),
+                "Indx" => Ok(Self::Index(Index::from_xml(child)?)),
                 _ => Err(ParseError::Enum)
             }
         } else {
@@ -438,7 +439,7 @@ impl FromXml for UnderlyingBasket {
         let mut isin = vec![];
         let mut issuer_lei = vec![];
         for c in elem.iter_children() {
-            match c.name.as_str() {
+            match c.local_name.as_str() {
                 "ISIN" => isin.push(c.text.to_owned()),
                 "LEI" => issuer_lei.push(c.text.to_owned()),
                 _ => return Err(ParseError::UnexpectedElement)
@@ -467,9 +468,9 @@ impl FromXml for DerivativeUnderlying {
     /// [`DerivativeUnderlying`] struct.
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
         if let Some(child) = elem.find_first_child() {
-            match child.name.as_str() {
-                "Sngl" => Ok(Self::Single(UnderlyingSingle::from_xml(child).unwrap())),
-                "Bskt" => Ok(Self::Basket(UnderlyingBasket::from_xml(child).unwrap())),
+            match child.local_name.as_str() {
+                "Sngl" => Ok(Self::Single(UnderlyingSingle::from_xml(child)?)),
+                "Bskt" => Ok(Self::Basket(UnderlyingBasket::from_xml(child)?)),
                 _ => Err(ParseError::UnexpectedElement)
             }
         } else {
@@ -495,10 +496,10 @@ impl FromXml for AssetClassSpecificAttributes {
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
         let mut attrs = Self::default();
         for c in elem.iter_children() {
-            match c.name.as_str() {
-                "Cmmdty" => attrs.commodity_attributes = Some(CommodityDerivativeAttributes::from_xml(c).unwrap()),
-                "Intrst" => attrs.ir_attributes = Some(InterestRateDerivativeAttributes::from_xml(c).unwrap()),
-                "FX" => attrs.fx_attributes = Some(FxDerivativeAttributes::from_xml(c).unwrap()),
+            match c.local_name.as_str() {
+                "Cmmdty" => attrs.commodity_attributes = Some(CommodityDerivativeAttributes::from_xml(c)?),
+                "Intrst" => attrs.ir_attributes = Some(InterestRateDerivativeAttributes::from_xml(c)?),
+                "FX" => attrs.fx_attributes = Some(FxDerivativeAttributes::from_xml(c)?),
                 _ => return Err(ParseError::UnexpectedElement)
             }
         }
@@ -542,24 +543,24 @@ impl FromXml for DerivativeAttributes {
     fn from_xml(elem: &Element) -> Result<Self, ParseError> {
         let mut attrs = DerivativeAttributes::default();
         for c in elem.iter_children() {
-            match c.name.as_str() {
+            match c.local_name.as_str() {
                 "XpryDt" =>
-                    attrs.expiry_date = Some(NaiveDate::parse_from_str(&c.text, "%Y-%m-%d").unwrap()),
+                    attrs.expiry_date = Some(NaiveDate::parse_from_str(&c.text, "%Y-%m-%d")?),
                 "PricMltplr" =>
-                    attrs.price_multiplier = Some(c.text.parse().unwrap()),
+                    attrs.price_multiplier = Some(c.text.parse()?),
                 "UndrlygInstrm" =>
-                    attrs.underlying = Some(DerivativeUnderlying::from_xml(c).unwrap()),
+                    attrs.underlying = Some(DerivativeUnderlying::from_xml(c)?),
                 "OptnTp" =>
-                    attrs.option_type = Some(OptionType::from_str(&c.text).unwrap()),
+                    attrs.option_type = Some(OptionType::from_str(&c.text)?),
                 "StrkPric" =>
-                    attrs.strike_price = Some(StrikePrice::from_xml(c).unwrap()),
+                    attrs.strike_price = Some(StrikePrice::from_xml(c)?),
                 "OptnExrcStyle" =>
-                    attrs.option_exercise_style = Some(OptionExerciseStyle::from_str(&c.text).unwrap()),
+                    attrs.option_exercise_style = Some(OptionExerciseStyle::from_str(&c.text)?),
                 "DlvryTp" =>
-                    attrs.delivery_type = Some(DeliveryType::from_str(&c.text).unwrap()),
+                    attrs.delivery_type = Some(DeliveryType::from_str(&c.text)?),
                 "AsstClssSpcfcAttrbts" =>
                     attrs.asset_class_specific_attributes
-                        = Some(AssetClassSpecificAttributes::from_xml(c).unwrap()),
+                        = Some(AssetClassSpecificAttributes::from_xml(c)?),
                 _ => return Err(ParseError::UnexpectedElement)
             }
         }
@@ -569,7 +570,7 @@ impl FromXml for DerivativeAttributes {
 
 /// A base class for financial instrument reference data.
 #[derive(Debug)]
-struct ReferenceData {
+pub(crate) struct ReferenceData {
     /// The International Securities Identifier Number (ISO 6166) of the financial instrument.
     isin: String,
     /// The full name of the financial instrument. This should give a good indication of the
@@ -583,7 +584,7 @@ struct ReferenceData {
     /// The Legal Entity Identifier (ISO 17442) for the issuer. In certain cases, eg derivative
     /// instruments issued by the trading venue, this field will be populated with the trading
     /// venue operator's LEI.
-    issuer_lei: String,
+    pub issuer_lei: String,
     /// The Financial Instrument Short Name (ISO 18774) for the financial instrument.
     fisn: String,
     /// Data relating to the trading or admission to trading of the financial instrument
@@ -602,12 +603,38 @@ struct ReferenceData {
     /// If the instrument is a derivative, certain derivative-related attributes.
     derivative_attributes: Option<DerivativeAttributes>,
 }
+
+impl FromXml for ReferenceData {
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        let gen_attrs = elem.get_child("FinInstrmGnlAttrbts")?;
+        Ok(Self {
+            isin: gen_attrs.get_child("Id")?.text.to_owned(),
+            full_name: gen_attrs.get_child("FullNm")?.text.to_owned(),
+            cfi: gen_attrs.get_child("ClssfctnTp")?.text.to_owned(),
+            is_commodities_derivative: gen_attrs.get_child("CmmdtyDerivInd")?.text.parse()?,
+            issuer_lei: elem.get_child("Issr")?.text.to_owned(),
+            fisn: gen_attrs.get_child("ShrtNm")?.text.to_owned(),
+            trading_venue_attrs: TradingVenueAttributes::from_xml(
+                elem.get_child("TradgVnRltdAttrbts")?
+            )?,
+            notional_currency: gen_attrs.get_child("NtnlCcy")?.text.to_owned(),
+            technical_attributes: TechnicalAttributes::from_xml_option(
+                elem.find_child("TechAttrbts")
+            )?,
+            debt_attributes: DebtAttributes::from_xml_option(
+                elem.find_child("DebtInstrmAttrbts")
+            )?,
+            derivative_attributes: DerivativeAttributes::from_xml_option(
+                elem.find_child("DerivInstrmAttrbts")
+            )?
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::model::{CommodityDerivativeAttributes, DebtAttributes, DerivativeAttributes, FromXml, FxDerivativeAttributes, FloatingRate, InterestRate, InterestRateDerivativeAttributes, PublicationPeriod, StrikePrice, TechnicalAttributes, TradingVenueAttributes};
-    use crate::xml_utils::Element;
-    use quick_xml::events::Event;
-    use quick_xml::NsReader;
+    use crate::iter_xml::XmlIterator;
+    use crate::model::{CommodityDerivativeAttributes, DebtAttributes, DerivativeAttributes, FloatingRate, FromXml, FxDerivativeAttributes, InterestRate, InterestRateDerivativeAttributes, PublicationPeriod, ReferenceData, StrikePrice, TechnicalAttributes, TradingVenueAttributes};
     use std::env::current_dir;
     use std::fs::File;
     use std::io::BufReader;
@@ -622,29 +649,13 @@ mod tests {
             let path = get_firds_data_dir().join("esma").join(fname);
             let file = File::open(path).unwrap();
             let reader = BufReader::new(file);
-            let mut xml_reader = NsReader::from_reader(reader);
-            let mut buf = Vec::new();
+            let xml_iter = XmlIterator::new(tag, reader);
             let mut parsed = 0;
-            loop {
-                match xml_reader.read_event_into(&mut buf) {
-                    Ok(Event::Start(e)) => {
-                        let elem_name = e.name();
-                        let tag_name = String::from_utf8_lossy(elem_name.as_ref());
-                        if tag_name == tag {
-                            // 🧠 Found the tag we're interested in
-                            let element_res = Element::parse_start(&mut xml_reader, e);
-                            assert!(element_res.is_ok());
-                            let element = element_res.unwrap();
-                            let from_xml_res = T::from_xml(&element);
-                            assert!(from_xml_res.is_ok());
-                            parsed += 1;
-                        }
-                    }
-                    Ok(Event::Eof) => break,
-                    Err(e) => panic!("Error: {:?}", e),
-                    _ => {}
-                }
-                buf.clear();
+            for elem in xml_iter {
+                assert!(elem.is_ok());
+                let from_xml_res = T::from_xml(&elem.unwrap());
+                assert!(from_xml_res.is_ok());
+                parsed += 1;
             }
             println!("{fname}: {parsed}");
             assert_eq!(parsed, count);
@@ -917,6 +928,39 @@ mod tests {
             ("FULINS_H_20250201_02of02.xml", 222360),
             ("FULINS_S_20250201_05of05.xml", 128400),
             ("FULINS_R_20250201_01of08.xml", 499663),
+        ])
+    }
+    
+    #[test]
+    fn test_parse_ref_data() {
+        test_parsing_xml::<ReferenceData>("RefData", vec![
+            ("FULINS_D_20250201_02of03.xml", 500000),
+            ("FULINS_O_20250201_01of03.xml", 500000),
+            ("FULINS_C_20250201_01of01.xml", 125816),
+            ("FULINS_S_20250201_01of05.xml", 500000),
+            ("FULINS_D_20250201_03of03.xml", 193982),
+            ("FULINS_S_20250201_04of05.xml", 500000),
+            ("FULINS_S_20250201_03of05.xml", 500000),
+            ("FULINS_H_20250201_01of02.xml", 500000),
+            ("FULINS_R_20250201_08of08.xml", 495128),
+            ("FULINS_R_20250201_02of08.xml", 500000),
+            ("FULINS_R_20250201_07of08.xml", 500000),
+            ("FULINS_O_20250201_03of03.xml", 52304),
+            ("FULINS_F_20250201_01of01.xml", 47878),
+            ("FULINS_E_20250201_01of02.xml", 500000),
+            ("FULINS_O_20250201_02of03.xml", 500000),
+            ("FULINS_R_20250201_03of08.xml", 500000),
+            ("FULINS_R_20250201_05of08.xml", 500000),
+            ("FULINS_E_20250201_02of02.xml", 55790),
+            ("FULINS_R_20250201_04of08.xml", 500000),
+            ("FULINS_I_20250201_01of01.xml", 3),
+            ("FULINS_S_20250201_02of05.xml", 500000),
+            ("FULINS_D_20250201_01of03.xml", 500000),
+            ("FULINS_J_20250201_01of01.xml", 112078),
+            ("FULINS_R_20250201_06of08.xml", 500000),
+            ("FULINS_H_20250201_02of02.xml", 222360),
+            ("FULINS_S_20250201_05of05.xml", 128400),
+            ("FULINS_R_20250201_01of08.xml", 500000),
         ])
     }
 }

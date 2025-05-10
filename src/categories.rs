@@ -3,8 +3,8 @@
 use std::str::FromStr;
 use strum_macros::{EnumString, Display};
 use crate::error::ParseError;
+use crate::iter_xml::Element;
 use crate::model::FromXml;
-use crate::xml_utils::Element;
 
 /// Represents the unit of time in which the term is expressed (days, weeks, months, or years).
 #[derive(Debug, EnumString, Display)]

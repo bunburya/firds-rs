@@ -2,4 +2,5 @@ mod model;
 mod categories;
 mod product;
 mod error;
-mod xml_utils;
+mod parse_utils;
+mod iter_xml;

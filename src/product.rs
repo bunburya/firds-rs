@@ -1,8 +1,9 @@
 use std::str::FromStr;
 use crate::error::{ParseError, ProductParseError};
 use strum_macros::{Display, EnumString};
+use crate::iter_xml::Element;
 use crate::model::FromXml;
-use crate::xml_utils::{text_or_none, Element};
+use crate::parse_utils::text_or_none;
 
 /// Verifies that `fsp` is not `None`, and then calls the given function on the `&str` wrapped by
 /// `fsp`. Used to conveniently construct subproduct enum members which require an associated
@@ -137,7 +138,7 @@ impl FromXml for BaseProduct {
             &elem.get_child("BasePdct")?.text,
             text_or_none(elem.find_child("SubPdct")),
             text_or_none(elem.find_child("AddtlSubPdct")),
-        ).unwrap())
+        )?)
     }
 }
 
