@@ -631,17 +631,44 @@ impl FromXml for ReferenceData {
     }
 }
 
+/// Reference data for a newly added financial instrument.
+struct NewRecord(ReferenceData);
+
+impl FromXml for NewRecord {
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self(ReferenceData::from_xml(elem)?))
+    }
+}
+
+/// Modified reference data for a financial instrument.
+struct ModifiedRecord(ReferenceData);
+
+impl FromXml for ModifiedRecord {
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self(ReferenceData::from_xml(elem)?))
+    }
+}
+
+/// Reference data for a financial instrument that has ceased being traded on a trading venue.
+struct TerminatedRecord(ReferenceData);
+
+impl FromXml for TerminatedRecord {
+    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+        Ok(Self(ReferenceData::from_xml(elem)?))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::iter_xml::XmlIterator;
-    use crate::model::{CommodityDerivativeAttributes, DebtAttributes, DerivativeAttributes, FloatingRate, FromXml, FxDerivativeAttributes, InterestRate, InterestRateDerivativeAttributes, PublicationPeriod, ReferenceData, StrikePrice, TechnicalAttributes, TradingVenueAttributes};
+    use crate::model::{CommodityDerivativeAttributes, DebtAttributes, DerivativeAttributes, FloatingRate, FromXml, FxDerivativeAttributes, InterestRate, InterestRateDerivativeAttributes, ModifiedRecord, NewRecord, PublicationPeriod, ReferenceData, StrikePrice, TechnicalAttributes, TerminatedRecord, TradingVenueAttributes};
     use std::env::current_dir;
     use std::fs::File;
     use std::io::BufReader;
     use std::path::PathBuf;
 
     fn get_firds_data_dir() -> PathBuf {
-        current_dir().unwrap().join("test_data").join("firds_data")
+        current_dir().unwrap().join("../../test_data").join("firds_data")
     }
 
     fn test_parsing_xml<T: FromXml>(tag: &str, files: Vec<(&str, i32)>) {
@@ -961,6 +988,60 @@ mod tests {
             ("FULINS_H_20250201_02of02.xml", 222360),
             ("FULINS_S_20250201_05of05.xml", 128400),
             ("FULINS_R_20250201_01of08.xml", 500000),
+        ])
+    }
+
+    #[test]
+    fn test_parse_modified() {
+        test_parsing_xml::<ModifiedRecord>("ModfdRcrd", vec![
+            ("DLTINS_20250205_02of02.xml", 183577),
+            ("DLTINS_20250206_01of02.xml", 427787),
+            ("DLTINS_20250204_01of02.xml", 396575),
+            ("DLTINS_20250204_02of02.xml", 98287),
+            ("DLTINS_20250203_01of01.xml", 16),
+            ("DLTINS_20250202_01of01.xml", 7614),
+            ("DLTINS_20250207_02of02.xml", 81638),
+            ("DLTINS_20250205_01of02.xml", 369139),
+            ("DLTINS_20250201_01of02.xml", 364297),
+            ("DLTINS_20250207_01of02.xml", 370483),
+            ("DLTINS_20250201_02of02.xml", 91768),
+            ("DLTINS_20250206_02of02.xml", 13989),
+        ])
+    }
+
+    #[test]
+    fn test_parse_new() {
+        test_parsing_xml::<NewRecord>("NewRcrd", vec![
+            ("DLTINS_20250205_02of02.xml", 28341),
+            ("DLTINS_20250206_01of02.xml", 38170),
+            ("DLTINS_20250204_01of02.xml", 61742),
+            ("DLTINS_20250204_02of02.xml", 19721),
+            ("DLTINS_20250203_01of01.xml", 0),
+            ("DLTINS_20250202_01of01.xml", 1924),
+            ("DLTINS_20250207_02of02.xml", 34953),
+            ("DLTINS_20250205_01of02.xml", 47349),
+            ("DLTINS_20250201_01of02.xml", 83679),
+            ("DLTINS_20250207_01of02.xml", 75119),
+            ("DLTINS_20250201_02of02.xml", 27141),
+            ("DLTINS_20250206_02of02.xml", 2763),
+        ])
+    }
+    
+    #[test]
+    fn test_parse_terminated() {
+        test_parsing_xml::<TerminatedRecord>("TermntdRcrd", vec![
+            ("DLTINS_20250205_02of02.xml", 25490),
+            ("DLTINS_20250206_01of02.xml", 34043),
+            ("DLTINS_20250204_01of02.xml", 41681),
+            ("DLTINS_20250204_02of02.xml", 10196),
+            ("DLTINS_20250203_01of01.xml", 616),
+            ("DLTINS_20250202_01of01.xml", 38436),
+            ("DLTINS_20250207_02of02.xml", 19702),
+            ("DLTINS_20250205_01of02.xml", 83512),
+            ("DLTINS_20250201_01of02.xml", 52024),
+            ("DLTINS_20250207_01of02.xml", 54398),
+            ("DLTINS_20250201_02of02.xml", 24105),
+            ("DLTINS_20250206_02of02.xml", 4368),
         ])
     }
 }

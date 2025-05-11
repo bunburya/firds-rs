@@ -1,0 +1,9 @@
+[package]
+name = "firds"
+edition = "2021"
+
+[dependencies]
+chrono = "0.4.41"
+quick-xml = "0.37.5"
+strum = "0.27.1"
+strum_macros = "0.27.1"
