@@ -1,35 +1,20 @@
+use crate::error::DownloadError;
 use chrono::{DateTime, FixedOffset};
+use futures_util::StreamExt;
+use md5::{Digest, Md5};
+use reqwest::Client;
 use serde_json::{Map, Value};
+use std::ffi::OsString;
+use std::fs::{create_dir_all, rename, File};
+use std::io;
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use strum_macros::EnumString;
 
 const ESMA_BASE_URL: &str = "https://registers.esma.europa.eu/solr/esma_registers_firds_files/";
 const FCA_BASE_URL: &str = "https://api.data.fca.org.uk/fca_data_firds_files";
 
-enum DownloadError {
-    BadJson,
-    BadEnum(strum::ParseError),
-    /// Error parsing a [`chrono::DateTime`] from a string.
-    DateTime(chrono::ParseError),
-}
-
-impl From<chrono::ParseError> for DownloadError {
-    fn from(err: chrono::ParseError) -> DownloadError {
-        Self::DateTime(err)
-    }
-}
-
-impl From<serde_json::Error> for DownloadError {
-    fn from(err: serde_json::Error) -> Self {
-        Self::BadJson
-    }
-}
-
-impl From<strum::ParseError> for DownloadError {
-    fn from(err: strum::ParseError) -> Self {
-        Self::BadEnum(err)
-    }
-}
 
 /// Get a string from a JSON object, or return an error.
 fn str_from_map<'a>(map: &'a Map<String, Value>, k: &str) -> Result<&'a str, DownloadError> {
@@ -105,5 +90,44 @@ impl FirdsDoc {
         } else {
             Err(DownloadError::BadJson)
         }
+    }
+
+    async fn download_zip(
+        &self,
+        client: &Client,
+        to_dir: &Path,
+        overwrite: bool,
+        verify: bool
+    ) -> Result<(), DownloadError> {
+        if !to_dir.exists() {
+            create_dir_all(to_dir)?
+        }
+        let fpath = to_dir.join(&self.file_name);
+        if (!overwrite) && fpath.exists() {
+            return Err(DownloadError::FileExists(fpath))
+        }
+        let mut fpath_part = OsString::from(&fpath);
+        fpath_part.push(".part");
+        let fpath_part: PathBuf = fpath_part.into();
+        let resp = client.get(ESMA_BASE_URL).send().await?;
+        let mut file = File::create(&fpath_part)?;
+        let mut stream = resp.bytes_stream();
+        while let Some(item) = stream.next().await {
+            file.write_all(&item?)?;
+        }
+        rename(&fpath_part, &fpath)?;
+        if verify {
+            if let Some(cs) = &self.checksum {
+                let mut file = File::open(&fpath)?;
+                let mut hasher = Md5::new();
+                io::copy(&mut file, &mut hasher)?;
+                let hash = hasher.finalize();
+                let hex = base16ct::lower::encode_string(&hash);
+                if &hex != cs {
+                    return Err(DownloadError::Md5CheckFailed(hex));
+                } 
+            }
+        }
+        Ok(())
     }
 }
