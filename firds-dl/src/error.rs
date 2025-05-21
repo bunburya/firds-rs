@@ -4,9 +4,13 @@ use std::path::PathBuf;
 #[derive(Debug)]
 pub(crate) enum DownloadError {
     /// Error parsing JSON.
+    JsonParseError(serde_json::Error),
+    /// JSON object does not contain the given member.
+    JsonMapKeyNotFound(String),
+    /// JSON not of expected shape.
     BadJson,
     /// Error parsing an enum value from text.
-    BadEnum(strum::ParseError),
+    EnumParseError(String),
     /// Error parsing a [`DateTime`] from a string.
     BadDateTime(chrono::ParseError),
     /// Input/output error.
@@ -15,10 +19,14 @@ pub(crate) enum DownloadError {
     FileExists(PathBuf),
     /// An error was encountered when parsing a request.
     Request(reqwest::Error),
-    /// File validation failed.
+    /// File validation failed. The contained string is the actual md5 sum of the file.
     Md5CheckFailed(String),
-    /// Could not parse an md5 checksum from a string.
-    BadMd5Sum(String)
+    /// Cannot verify file because no md5 checksum present.
+    NoMd5Sum,
+    /// Error extracting a file from a zip archive.
+    ZipError(zip::result::ZipError),
+    /// Error parsing or creating a URL.
+    UrlError(url::ParseError),
 }
 
 impl From<chrono::ParseError> for DownloadError {
@@ -28,14 +36,8 @@ impl From<chrono::ParseError> for DownloadError {
 }
 
 impl From<serde_json::Error> for DownloadError {
-    fn from(_err: serde_json::Error) -> Self {
-        Self::BadJson
-    }
-}
-
-impl From<strum::ParseError> for DownloadError {
-    fn from(err: strum::ParseError) -> Self {
-        Self::BadEnum(err)
+    fn from(err: serde_json::Error) -> Self {
+        Self::JsonParseError(err)
     }
 }
 
@@ -48,5 +50,17 @@ impl From<io::Error> for DownloadError {
 impl From<reqwest::Error> for DownloadError {
     fn from(err: reqwest::Error) -> Self {
         Self::Request(err)
+    }
+}
+
+impl From<zip::result::ZipError> for DownloadError {
+    fn from(err: zip::result::ZipError) -> Self {
+        Self::ZipError(err)
+    }
+}
+
+impl From<url::ParseError> for DownloadError {
+    fn from(err: url::ParseError) -> Self {
+        Self::UrlError(err)
     }
 }
