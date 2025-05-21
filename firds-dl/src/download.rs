@@ -1,5 +1,7 @@
 use crate::error::DownloadError;
+use crate::error::DownloadError::{BadJson, JsonMapKeyNotFound};
 use chrono::{DateTime, FixedOffset, Utc};
+use clap::ValueEnum;
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use reqwest::Client;
@@ -11,7 +13,6 @@ use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use crate::error::DownloadError::{BadJson, JsonMapKeyNotFound};
 
 const ESMA_BASE_URL: &str = "https://registers.esma.europa.eu/solr/esma_registers_firds_files/select";
 const FCA_BASE_URL: &str = "https://api.data.fca.org.uk/fca_data_firds_files";
@@ -53,7 +54,7 @@ fn map_from_value<'a>(value: &'a Value, k: &str) -> Result<&'a Map<String, Value
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone, ValueEnum)]
 pub(crate) enum FileType {
     Fulins,
     Dltins,
@@ -63,6 +64,12 @@ pub(crate) enum FileType {
 impl FromStr for FileType {
     type Err = DownloadError;
 
+    /// Parse an *upper-case* string (one of "FULINS", "DLTINS" or "FULCAN") into a variant of
+    /// [`FileType`].
+    ///
+    /// **NOTE**: [`FileType`] also has an implementation of `from_str` which is provided as a
+    /// result of implementing [`ValueEnum`]. That function is used to parse command line arguments
+    /// and, unlike this one, operates on *lower-case* strings.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "FULINS" => Ok(Self::Fulins),
@@ -84,7 +91,8 @@ impl Display for FileType {
 }
 
 /// Where we are downloading the data from (ESMA or FCA).
-pub(crate) enum Source {
+#[derive(Debug, Copy, Clone, ValueEnum)]
+pub(crate) enum FirdsSource {
     /// European Securities and Markets Authority (EU).
     Esma,
     /// Financial Conduct Authority (UK).
@@ -94,7 +102,7 @@ pub(crate) enum Source {
 /// A single document reference, returned by searching a FIRDS database (ESMA or FCA).
 pub(crate) struct FirdsDoc {
     /// The source of the file.
-    source: Source,
+    source: FirdsSource,
     /// A URL to download the file from.
     download_link: String,
     /// An ID for the file.
@@ -113,11 +121,11 @@ impl FirdsDoc {
     fn from_esma_json(json: &Value) -> Result<Self, DownloadError> {
         if let Value::Object(map) = json {
             Ok(Self {
-                source: Source::Esma,
+                source: FirdsSource::Esma,
                 download_link: str_from_map(map, "download_link")?.to_owned(),
                 file_id: str_from_map(map, "id")?.to_owned(),
                 file_name: str_from_map(map, "file_name")?.to_owned(),
-                file_type: FileType::from_str(str_from_map(map, "file_type")?)?,
+                file_type: <FileType as FromStr>::from_str(str_from_map(map, "file_type")?)?,
                 timestamp: DateTime::parse_from_rfc3339(str_from_map(map, "timestamp")?)?,
                 checksum: Some(str_from_map(map, "checksum")?.to_owned())
             })
@@ -130,16 +138,16 @@ impl FirdsDoc {
         if let Value::Object(map) = json {
             let source_json = map_from_map(map, "_source")?;
             Ok(Self {
-                source: Source::Fca,
+                source: FirdsSource::Fca,
                 download_link: str_from_map(source_json, "download_link")?.to_owned(),
                 file_id: str_from_map(map, "_id")?.to_owned(),
                 file_name: str_from_map(source_json, "file_name")?.to_owned(),
-                file_type: FileType::from_str(str_from_map(source_json, "file_type")?)?,
+                file_type: <FileType as FromStr>::from_str(str_from_map(source_json, "file_type")?)?,
                 timestamp: DateTime::parse_from_rfc3339(str_from_map(source_json, "last_refreshed")?)?,
                 checksum: None
             })
         } else {
-            Err(DownloadError::BadJson)
+            Err(BadJson)
         }
     }
 
@@ -286,6 +294,8 @@ struct ResultsPage {
     docs: Vec<FirdsDoc>
 }
 
+/// Search the ESMA FIRDS database for files from the given time period and, if applicable, of the
+/// given type.
 pub(crate) async fn search_esma(
     client: &Client,
     from_datetime: DateTime<Utc>,
