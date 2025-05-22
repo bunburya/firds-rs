@@ -1,6 +1,6 @@
 use crate::error::DownloadError;
 use crate::error::DownloadError::{BadJson, JsonMapKeyNotFound};
-use chrono::{DateTime, FixedOffset, Utc};
+use chrono::{DateTime, FixedOffset, NaiveDate, Utc};
 use clap::ValueEnum;
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
@@ -55,19 +55,19 @@ fn map_from_value<'a>(value: &'a Value, k: &str) -> Result<&'a Map<String, Value
 }
 
 #[derive(Debug, Copy, Clone, ValueEnum)]
-pub(crate) enum FileType {
+pub(crate) enum FirdsDocType {
     Fulins,
     Dltins,
     Fulcan
 }
 
-impl FromStr for FileType {
+impl FromStr for FirdsDocType {
     type Err = DownloadError;
 
     /// Parse an *upper-case* string (one of "FULINS", "DLTINS" or "FULCAN") into a variant of
-    /// [`FileType`].
+    /// [`FirdsDocType`].
     ///
-    /// **NOTE**: [`FileType`] also has an implementation of `from_str` which is provided as a
+    /// **NOTE**: [`FirdsDocType`] also has an implementation of `from_str` which is provided as a
     /// result of implementing [`ValueEnum`]. That function is used to parse command line arguments
     /// and, unlike this one, operates on *lower-case* strings.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -80,7 +80,7 @@ impl FromStr for FileType {
     }
 }
 
-impl Display for FileType {
+impl Display for FirdsDocType {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Fulins => write!(f, "FULINS"),
@@ -99,22 +99,31 @@ pub(crate) enum FirdsSource {
     Fca
 }
 
+impl Display for FirdsSource {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Esma => write!(f, "ESMA"),
+            Self::Fca => write!(f, "FCA")
+        }
+    }
+}
+
 /// A single document reference, returned by searching a FIRDS database (ESMA or FCA).
-pub(crate) struct FirdsDoc {
+pub struct FirdsDoc {
     /// The source of the file.
-    source: FirdsSource,
+    pub source: FirdsSource,
     /// A URL to download the file from.
-    download_link: String,
+    pub download_link: String,
     /// An ID for the file.
-    file_id: String,
+    pub file_id: String,
     /// The name of the file.
-    file_name: String,
+    pub file_name: String,
     /// The type of the file.
-    file_type: FileType,
+    pub file_type: FirdsDocType,
     /// The timestamp of the document.
-    timestamp: DateTime<FixedOffset>,
+    pub timestamp: DateTime<FixedOffset>,
     /// MD5 checksum for the file, if present (should be present in ESMA data but not FCA data).
-    checksum: Option<String>
+    pub checksum: Option<String>
 }
 
 impl FirdsDoc {
@@ -125,7 +134,7 @@ impl FirdsDoc {
                 download_link: str_from_map(map, "download_link")?.to_owned(),
                 file_id: str_from_map(map, "id")?.to_owned(),
                 file_name: str_from_map(map, "file_name")?.to_owned(),
-                file_type: <FileType as FromStr>::from_str(str_from_map(map, "file_type")?)?,
+                file_type: <FirdsDocType as FromStr>::from_str(str_from_map(map, "file_type")?)?,
                 timestamp: DateTime::parse_from_rfc3339(str_from_map(map, "timestamp")?)?,
                 checksum: Some(str_from_map(map, "checksum")?.to_owned())
             })
@@ -142,7 +151,7 @@ impl FirdsDoc {
                 download_link: str_from_map(source_json, "download_link")?.to_owned(),
                 file_id: str_from_map(map, "_id")?.to_owned(),
                 file_name: str_from_map(source_json, "file_name")?.to_owned(),
-                file_type: <FileType as FromStr>::from_str(str_from_map(source_json, "file_type")?)?,
+                file_type: <FirdsDocType as FromStr>::from_str(str_from_map(source_json, "file_type")?)?,
                 timestamp: DateTime::parse_from_rfc3339(str_from_map(source_json, "last_refreshed")?)?,
                 checksum: None
             })
@@ -300,11 +309,11 @@ pub(crate) async fn search_esma(
     client: &Client,
     from_datetime: DateTime<Utc>,
     to_datetime: DateTime<Utc>,
-    file_type: Option<FileType>
+    file_type: Option<FirdsDocType>
 ) -> Result<Vec<FirdsDoc>, DownloadError> {
-    let from_date_str = from_datetime.format("%Y-%m-%dT%H:%M:%SZ");
-    let to_date_str = to_datetime.format("%Y-%m-%dT%H:%M:%SZ");
-    let pub_date_fq = format!("publication_date:[{from_date_str} TO {to_date_str}]");
+    let from_dt_str = from_datetime.format("%Y-%m-%dT%H:%M:%SZ");
+    let to_dt_str = to_datetime.format("%Y-%m-%dT%H:%M:%SZ");
+    let pub_date_fq = format!("publication_date:[{from_dt_str} TO {to_dt_str}]");
     let q = if let Some(ft) = file_type {
         ft.to_string()
     } else {
@@ -312,6 +321,7 @@ pub(crate) async fn search_esma(
     };
     let mut start = 0;
     let rows = 100;
+    let rows_str = rows.to_string();
     let mut num_found= -1;
     let mut docs: Vec<FirdsDoc> = vec![];
     while (num_found < 0) || (num_found > start) {
@@ -322,17 +332,14 @@ pub(crate) async fn search_esma(
                 ("fq", pub_date_fq.as_str()),
                 ("wt", "json"),
                 ("start", &start.to_string()),
-                ("rows", &rows.to_string()),
+                ("rows", &rows_str),
             ]
         )?;
-        println!("url: {url}");
         let text = client.get(url).send().await?.text().await?;
-        //println!("text: {text}");
         let json: Value = serde_json::from_str(&text)?;
         let resp_body = json.get("response").and_then(Value::as_object).ok_or(BadJson)?;
         if num_found < 0 {
             num_found= resp_body.get("numFound").and_then(Value::as_i64).ok_or(BadJson)?;
-            println!("num_found: {num_found}");
         }
         let resp = json.get("response").and_then(Value::as_object).ok_or(BadJson)?;
         docs.extend(
@@ -345,6 +352,52 @@ pub(crate) async fn search_esma(
         );
         start += rows;
     }
-    println!("Found total of {} docs", docs.len());
+    Ok(docs)
+}
+
+pub(crate) async fn search_fca(
+    client: &Client,
+    from_date: NaiveDate,
+    to_date: NaiveDate,
+    file_type: Option<FirdsDocType>
+) -> Result<Vec<FirdsDoc>, DownloadError> {
+    let from_date_str = from_date.format("%Y-%m-%d");
+    let to_date_str = to_date.format("%Y-%m-%d");
+    let pub_date_q = format!("publication_date:[{from_date_str} TO {to_date_str}]");
+    let q = if let Some(ft) = file_type {
+        format!("((file_type:{}) AND ({pub_date_q}))", ft.to_string())
+    } else {
+        format!("({pub_date_q})")
+    };
+    let mut start = 0;
+    let rows = 100;
+    let rows_str = rows.to_string();
+    let mut num_found= -1;
+    let mut docs = vec![];
+    while (num_found < 0) || (num_found > start) {
+        let url = reqwest::Url::parse_with_params(
+            FCA_BASE_URL,
+            &[
+                ("q", q.as_str()),
+                ("from", &start.to_string()),
+                ("size", &rows_str),
+            ]
+        )?;
+        let text = client.get(url).send().await?.text().await?;
+        let json: Value = serde_json::from_str(&text)?;
+        let resp_body = json.get("hits").and_then(Value::as_object).ok_or(BadJson)?;
+        if num_found < 0 {
+            num_found= resp_body.get("total").and_then(Value::as_i64).ok_or(BadJson)?;
+        }
+        docs.extend(
+            resp_body.get("hits")
+                .and_then(Value::as_array)
+                .ok_or(BadJson)?
+                .iter()
+                .map(FirdsDoc::from_fca_json)
+                .collect::<Result<Vec<FirdsDoc>, DownloadError>>()?
+        );
+        start += rows;
+    }
     Ok(docs)
 }
