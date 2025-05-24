@@ -1,8 +1,9 @@
+use std::fmt::Display;
 use std::io;
 use std::path::PathBuf;
 
 #[derive(Debug)]
-pub(crate) enum DownloadError {
+pub enum DownloadError {
     /// Error parsing JSON.
     JsonParseError(serde_json::Error),
     /// JSON object does not contain the given member.
@@ -28,6 +29,27 @@ pub(crate) enum DownloadError {
     /// Error parsing or creating a URL.
     UrlError(url::ParseError),
 }
+
+impl Display for DownloadError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::JsonParseError(e) => write!(f, "Error parsing JSON: {e}"),
+            Self::JsonMapKeyNotFound(k) => write!(f, "Key not found in JSON object: {k}"),
+            Self::BadJson => write!(f, "JSON was not in expected form"),
+            Self::EnumParseError(e) => write!(f, "Could not parse enum value from string: {e}"),
+            Self::BadDateTime(e) => write!(f, "Error parsing DateTime from string: {e}"),
+            Self::IoError(e) => write!(f, "IO error: {e}"),
+            Self::FileExists(p) => write!(f, "File exists: {p:?}"),
+            Self::Request(e) => write!(f, "Error with HTTP request: {e}"),
+            Self::Md5CheckFailed(e) => write!(f, "MD5 checksum does not match: {e}"),
+            Self::NoMd5Sum => write!(f, "No MD5 sum was provided"),
+            Self::ZipError(e) => write!(f, "Error extracting file from zip archive: {e}"),
+            Self::UrlError(e) => write!(f, "Error constructing URL: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for DownloadError {}
 
 impl From<chrono::ParseError> for DownloadError {
     fn from(err: chrono::ParseError) -> DownloadError {
