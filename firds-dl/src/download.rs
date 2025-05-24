@@ -13,10 +13,10 @@ use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 const ESMA_BASE_URL: &str = "https://registers.esma.europa.eu/solr/esma_registers_firds_files/select";
 const FCA_BASE_URL: &str = "https://api.data.fca.org.uk/fca_data_firds_files";
-
 
 /// Get a string from a JSON object, or return an error.
 fn str_from_map<'a>(map: &'a Map<String, Value>, k: &str) -> Result<&'a str, DownloadError> {
@@ -54,7 +54,12 @@ fn map_from_value<'a>(value: &'a Value, k: &str) -> Result<&'a Map<String, Value
     }
 }
 
-#[derive(Debug, Copy, Clone, ValueEnum)]
+trait StreamProgress {
+    fn on_init(&self, content_length: u64);
+    fn on_progress(progress: u64);
+}
+
+#[derive(Debug, Copy, Clone, ValueEnum, PartialEq)]
 pub(crate) enum FirdsDocType {
     Fulins,
     Dltins,
@@ -91,7 +96,7 @@ impl Display for FirdsDocType {
 }
 
 /// Where we are downloading the data from (ESMA or FCA).
-#[derive(Debug, Copy, Clone, ValueEnum)]
+#[derive(Debug, Copy, Clone, ValueEnum, PartialEq)]
 pub(crate) enum FirdsSource {
     /// European Securities and Markets Authority (EU).
     Esma,
@@ -127,7 +132,7 @@ pub struct FirdsDoc {
 }
 
 impl FirdsDoc {
-    fn from_esma_json(json: &Value) -> Result<Self, DownloadError> {
+    pub fn from_esma_json(json: &Value) -> Result<Self, DownloadError> {
         if let Value::Object(map) = json {
             Ok(Self {
                 source: FirdsSource::Esma,
@@ -143,7 +148,7 @@ impl FirdsDoc {
         }
     }
     
-    fn from_fca_json(json: &Value) -> Result<Self, DownloadError> {
+    pub fn from_fca_json(json: &Value) -> Result<Self, DownloadError> {
         if let Value::Object(map) = json {
             let source_json = map_from_map(map, "_source")?;
             Ok(Self {
@@ -162,7 +167,7 @@ impl FirdsDoc {
 
     /// Verify the md5 checksum of the file at the given path. Assumes that a checksum is present in
     /// the struct, returning an error if not.
-    fn verify_file(&self, fpath: &Path) -> Result<(), DownloadError> {
+    pub fn verify_file(&self, fpath: &Path) -> Result<(), DownloadError> {
         if let Some(cs) = &self.checksum {
             let mut file = File::open(fpath)?;
             let mut hasher = Md5::new();
@@ -185,12 +190,13 @@ impl FirdsDoc {
     ///
     /// This method is wrapped by source-specific methods which should be called by the user (see
     /// [`FirdsDoc::download_esma_zip`] and [`FirdsDoc::download_fca_zip`]).
-    async fn download_zip(
+    pub async fn download_zip(
         &self,
         client: &Client,
         to_dir: &Path,
         overwrite: bool,
-        verify: bool
+        verify: bool,
+        progress: Option<&MultiProgress>
     ) -> Result<PathBuf, DownloadError> {
         if !to_dir.exists() {
             create_dir_all(to_dir)?
@@ -210,10 +216,23 @@ impl FirdsDoc {
         }
         let resp = client.get(&self.download_link).send().await?;
         let mut file = File::create(&fpath_part)?;
+        let content_length = resp.content_length().unwrap_or(0);
         let mut stream = resp.bytes_stream();
-        while let Some(item) = stream.next().await {
-            file.write_all(&item?)?;
-        }
+        if let Some(mp) = progress {
+            let pb = mp.add(ProgressBar::new(content_length));
+            pb.set_style(ProgressStyle::with_template(
+                &format!("{:<30} [{{elapsed_precise}}] {{bar:40.cyan/blue}} {{decimal_bytes:>7}}/{{decimal_total_bytes:7}}", self.file_name)
+            ).unwrap());
+            while let Some(res) = stream.next().await {
+                let bytes = res?;
+                file.write_all(&bytes)?;
+                pb.inc(bytes.iter().len() as u64)
+            }
+        } else {
+            while let Some(item) = stream.next().await {
+                file.write_all(&item?)?;
+            }
+        };
         if verify {
             self.verify_file(&fpath_part)?;
         }
@@ -237,14 +256,15 @@ impl FirdsDoc {
     /// * `verify`: Whether to verify the file after it is downloaded by comparing its md5 sum
     ///   against the checksum stored in the struct. If `true` and no checksum is present in the
     ///   struct, an error will be returned.
-    async fn download_esma_zip(
+    pub async fn download_esma_zip(
         &self,
         client: &Client,
         to_dir: &Path,
         overwrite: bool,
-        verify: bool
+        verify: bool,
+        progress: Option<&MultiProgress>
     ) -> Result<PathBuf, DownloadError> {
-        self.download_zip(client, to_dir, overwrite, verify).await
+        self.download_zip(client, to_dir, overwrite, verify, progress).await
     }
 
     /// Download the zip file from the FCA FIRDS database.
@@ -259,24 +279,26 @@ impl FirdsDoc {
     ///   does not exist.
     /// * `overwrite`: Whether to overwrite an existing file if it exists at the destination. If
     ///   `false`, an error will be returned if a file already exists.
-    async fn download_fca_zip(
+    pub async fn download_fca_zip(
         &self,
         client: &Client,
         to_dir: &Path,
-        overwrite: bool
+        overwrite: bool,
+        progress: Option<&MultiProgress>
     ) -> Result<PathBuf, DownloadError> {
-        self.download_zip(client, to_dir, overwrite, false).await
+        self.download_zip(client, to_dir, overwrite, false, progress).await
     }
 
-    async fn download_xml(
+    pub async fn download_xml(
         &self,
         client: &Client,
         to_dir: &Path,
         overwrite: bool,
         verify: bool,
-        delete_xml: bool
+        delete_xml: bool,
+        progress: Option<&MultiProgress>
     ) -> Result<PathBuf, DownloadError> {
-        let zip_fpath = self.download_zip(client, to_dir, overwrite, verify).await?;
+        let zip_fpath = self.download_zip(client, to_dir, overwrite, verify, progress).await?;
         let zipped_file = File::open(&zip_fpath)?;
         let mut archive = zip::ZipArchive::new(zipped_file)?;
         let mut zip_file = archive.by_name(&self.file_name)?;
@@ -293,15 +315,6 @@ impl FirdsDoc {
     }
 }
 
-/// A single page of document results obtained by searching the ESMA or FCA firds database.
-struct ResultsPage {
-    /// Where in the results we are starting from.
-    start: u32,
-    /// How many rows were searched for (the number of actual results may be less).
-    rows: u32,
-    /// The documents returned by the search.
-    docs: Vec<FirdsDoc>
-}
 
 /// Search the ESMA FIRDS database for files from the given time period and, if applicable, of the
 /// given type.
