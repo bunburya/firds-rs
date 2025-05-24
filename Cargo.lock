@@ -462,7 +462,6 @@ name = "firds"
 version = "0.0.0"
 dependencies = [
  "chrono",
- "quick-xml",
  "strum",
  "strum_macros",
 ]
@@ -484,6 +483,20 @@ dependencies = [
  "tokio",
  "url",
  "zip",
+]
+
+[[package]]
+name = "firds-sql"
+version = "0.1.0"
+
+[[package]]
+name = "firds-xml"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "firds",
+ "quick-xml",
+ "strum",
 ]
 
 [[package]]

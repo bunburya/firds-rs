@@ -1,5 +1,7 @@
 [workspace]
 members = [
     "firds",
-    "firds-dl"
+    "firds-xml",
+    "firds-dl",
+    "firds-sql"
 ]

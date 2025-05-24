@@ -3,8 +3,6 @@
 use std::str::FromStr;
 use strum_macros::{EnumString, Display};
 use crate::error::ParseError;
-use crate::iter_xml::Element;
-use crate::model::FromXml;
 
 /// Represents the unit of time in which the term is expressed (days, weeks, months, or years).
 #[derive(Debug, EnumString, Display)]
@@ -107,14 +105,6 @@ pub enum DebtSeniority {
     Junior,
 }
 
-impl FromXml for DebtSeniority {
-
-    /// Parse a `DebtSnrty` XML element from FIRDS data into a [`DebtSeniority`] enum.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        Ok(Self::from_str(&elem.text)?)
-    } 
-}
-
 /// Represents the type of an option (put, call, or other).
 #[derive(Debug, EnumString, Display)]
 pub enum OptionType {
@@ -176,12 +166,6 @@ pub enum TransactionType {
     #[strum(serialize = "OTHR")]
     Other,
 }
-impl FromXml for TransactionType {
-    /// Parse a `TxTp` XML element from FIRDS data into a [`TransactionType`] enum.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        Ok(Self::from_str(&elem.text)?)
-    }
-}
 
 /// Represents the final price type of a derivative.
 #[derive(Debug, EnumString, Display)]
@@ -202,13 +186,6 @@ pub enum FinalPriceType {
     Other,
 }
 
-impl FromXml for FinalPriceType {
-    /// Parse a `FnlPricTp` XML element from FIRDS data into a [`FinalPriceType`] enum.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        Ok(Self::from_str(&elem.text)?)
-    }
-}
-
 /// Represents the type of FX.
 #[derive(Debug, EnumString, Display)]
 pub enum FxType {
@@ -218,12 +195,6 @@ pub enum FxType {
     EmergingMarkets,
     #[strum(serialize = "FXMJ")]
     Majors,
-}
-
-impl FromXml for FxType {
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        Ok(Self::from_str(&elem.text)?)
-    }
 }
 
 /// Represents the type of strike price.

@@ -1,36 +1,33 @@
+use crate::error::ProductError;
 use std::str::FromStr;
-use crate::error::{ParseError, ProductParseError};
 use strum_macros::{Display, EnumString};
-use crate::iter_xml::Element;
-use crate::model::FromXml;
-use crate::parse_utils::text_or_none;
 
 /// Verifies that `fsp` is not `None`, and then calls the given function on the `&str` wrapped by
 /// `fsp`. Used to conveniently construct subproduct enum members which require an associated
 /// [`FurtherSubProduct`].
 fn with_fsp_or_err<T>(
     fsp: Option<&str>,
-    func: fn(&str) -> Result<T, ProductParseError>
-) -> Result<T, ProductParseError> {
+    func: fn(&str) -> Result<T, ProductError>
+) -> Result<T, ProductError> {
     if let Some(fsp) = fsp {
         func(fsp)
     } else {
-        Err(ProductParseError::NoSubProduct)
+        Err(ProductError::NoSubProduct)
     }
 }
 
 /// Verifies that `fsp` is `None` and, if so, returns `sp`. Used to check that we have not
 /// encountered a further subproduct code when dealing with a subproduct that does not expect one.
-fn without_fsp_or_err<T>(sp: T, fsp: Option<&str>) -> Result<T, ProductParseError> {
+fn without_fsp_or_err<T>(sp: T, fsp: Option<&str>) -> Result<T, ProductError> {
     if fsp.is_some() {
-        Err(ProductParseError::BadSubProduct)
+        Err(ProductError::BadSubProduct)
     } else {
         Ok(sp)
     }
 }
 
-fn optional_fsp<T: FromStr>(fsp: Option<&str>) -> Result<Option<T>, ProductParseError> 
-where ProductParseError: From<<T as FromStr>::Err> {
+fn optional_fsp<T: FromStr>(fsp: Option<&str>) -> Result<Option<T>, ProductError> 
+where ProductError: From<<T as FromStr>::Err> {
     if let Some(s) = fsp {
         Ok(Some(T::from_str(&s)?))
     } else {
@@ -40,7 +37,7 @@ where ProductParseError: From<<T as FromStr>::Err> {
 
 trait SubProduct {
     fn try_from_codes(sub_prod: &str, further_sub_prod: Option<&str>) 
-        -> Result<Self, ProductParseError> where Self: Sized;
+        -> Result<Self, ProductError> where Self: Sized;
 }
 
 /// Classification of commodity and emission allowances derivatives.
@@ -82,7 +79,7 @@ pub enum BaseProduct {
 }
 
 impl BaseProduct {
-    pub(crate) fn try_from_codes(prod: &str, sub_prod: Option<&str>, further_sub_prod: Option<&str>) -> Result<Self, ProductParseError> {
+    pub fn try_from_codes(prod: &str, sub_prod: Option<&str>, further_sub_prod: Option<&str>) -> Result<Self, ProductError> {
         if let Some(sp) = sub_prod {
             match prod {
                 "AGRI" => Ok(Self::Agricultural(
@@ -115,7 +112,7 @@ impl BaseProduct {
                 "OTHC" => Ok(Self::OtherC10(
                     OtherC10SubProduct::try_from_codes(sp, further_sub_prod)?
                 )),
-                _ => Err(ProductParseError::BadSubProduct)
+                _ => Err(ProductError::BadSubProduct)
             }
         } else {
             match prod {
@@ -123,22 +120,9 @@ impl BaseProduct {
                 "INFL" => Ok(Self::Inflation),
                 "OEST" => Ok(Self::OfficialEconomicStatistics),
                 "OTHR" => Ok(Self::Other),
-                _ => Err(ProductParseError::BadProduct)
+                _ => Err(ProductError::BadProduct)
             }
         }
-    }
-}
-
-impl FromXml for BaseProduct {
-    /// Parse an appropriate XML element into a [`BaseProduct`] enum. The XML element can be of any
-    /// kind that contains at least a `BasePdct` element and optionally `SubPdct` and `AddtlSubPdct`
-    /// elements.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
-        Ok(Self::try_from_codes(
-            &elem.get_child("BasePdct")?.text,
-            text_or_none(elem.find_child("SubPdct")),
-            text_or_none(elem.find_child("AddtlSubPdct")),
-        )?)
     }
 }
 
@@ -160,7 +144,7 @@ impl SubProduct for AgriculturalSubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product {
             "GROS" => with_fsp_or_err(further_sub_product, |fsp| {
                 Ok(Self::GrainsAndOilSeeds(GrainsAndOilSeedsFurtherSubProduct::try_from(fsp)?))
@@ -175,7 +159,7 @@ impl SubProduct for AgriculturalSubProduct {
             "SEAF" => without_fsp_or_err(Self::Seafood, further_sub_product),
             "LSTK" => without_fsp_or_err(Self::Livestock, further_sub_product),
             "GRIN" => Ok(Self::Grain(optional_fsp(further_sub_product)?)),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -205,7 +189,7 @@ impl SubProduct for EnergySubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product {
             "ELEC" => with_fsp_or_err(further_sub_product, |fsp| {
                 Ok(Self::Electricity(ElectricityFurtherSubProduct::try_from(fsp)?))
@@ -217,7 +201,7 @@ impl SubProduct for EnergySubProduct {
             "RNNG" => without_fsp_or_err(Self::RenewableEnergy, further_sub_product),
             "LGHT" => without_fsp_or_err(Self::LightEnds, further_sub_product),
             "DIST" => without_fsp_or_err(Self::Distillates, further_sub_product),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -236,12 +220,12 @@ impl SubProduct for EnvironmentalSubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product {
             "EMIS" => Ok(Self::Emissions(optional_fsp(further_sub_product)?)),
             "WTHR" => without_fsp_or_err(Self::Weather, further_sub_product),
             "CRBR" => without_fsp_or_err(Self::CarbonRelated, further_sub_product),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -257,12 +241,12 @@ impl SubProduct for FreightSubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product {
             "WETF" => Ok(Self::Wet(optional_fsp(further_sub_product)?)),
             "DRYF" => Ok(Self::Dry(optional_fsp(further_sub_product)?)),
             "CSHP" => without_fsp_or_err(Self::ContainerShips, further_sub_product),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -287,7 +271,7 @@ impl SubProduct for FertilizerSubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product {
             "AMMO" => without_fsp_or_err(Self::Ammonia, further_sub_product),
             "DAPH" => without_fsp_or_err(Self::Dap, further_sub_product),
@@ -295,7 +279,7 @@ impl SubProduct for FertilizerSubProduct {
             "SLPH" => without_fsp_or_err(Self::Sulphur, further_sub_product),
             "UREA" => without_fsp_or_err(Self::Urea, further_sub_product),
             "UAAN" => without_fsp_or_err(Self::Uan, further_sub_product),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -312,11 +296,11 @@ impl SubProduct for IndustrialProductsSubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product { 
             "CSTR" => without_fsp_or_err(Self::Construction, further_sub_product),
             "MFTG" => without_fsp_or_err(Self::Manufacturing, further_sub_product),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -333,7 +317,7 @@ impl SubProduct for MetalsSubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product { 
             "NPRM" => with_fsp_or_err(further_sub_product, |fsp| {
                 Ok(Self::NonPrecious(NonPreciousMetalsFurtherSubProduct::try_from(fsp)?))
@@ -341,7 +325,7 @@ impl SubProduct for MetalsSubProduct {
             "PRME" => with_fsp_or_err(further_sub_product, |fsp| {
                 Ok(Self::Precious(PreciousMetalsFurtherSubProduct::try_from(fsp)?))
             }),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -358,13 +342,13 @@ impl SubProduct for PaperSubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product { 
             "CBRD" => without_fsp_or_err(Self::Containerboard, further_sub_product),
             "NSPT" => without_fsp_or_err(Self::Newsprint, further_sub_product),
             "PULP" => without_fsp_or_err(Self::Pulp, further_sub_product),
             "RCVP" => without_fsp_or_err(Self::RecoveredPaper, further_sub_product),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -378,10 +362,10 @@ impl SubProduct for PolypropyleneSubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product { 
             "PLST" => without_fsp_or_err(Self::Plastic, further_sub_product),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
@@ -398,11 +382,11 @@ impl SubProduct for OtherC10SubProduct {
     fn try_from_codes(
         sub_product: &str,
         further_sub_product: Option<&str>
-    ) -> Result<Self, ProductParseError> {
+    ) -> Result<Self, ProductError> {
         match sub_product {
             "DLVR" => without_fsp_or_err(Self::Deliverable, further_sub_product),
             "NDLV" => without_fsp_or_err(Self::NonDeliverable, further_sub_product),
-            _ => Err(ProductParseError::BadSubProduct)
+            _ => Err(ProductError::BadSubProduct)
         }
     }
 }
