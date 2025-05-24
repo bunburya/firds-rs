@@ -13,7 +13,6 @@ use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 const ESMA_BASE_URL: &str = "https://registers.esma.europa.eu/solr/esma_registers_firds_files/select";
 const FCA_BASE_URL: &str = "https://api.data.fca.org.uk/fca_data_firds_files";
@@ -34,29 +33,31 @@ fn map_from_map<'a>(map: &'a Map<String, Value>, k: &str) -> Result<&'a Map<Stri
         .ok_or(BadJson)
 }
 
-/// Get a map from a JSON value, which is assumed to represent a JSON object. Return an error if the
-/// value is not an object.
-fn str_from_value<'a>(value: &'a Value, k: &str) -> Result<&'a str, DownloadError> {
-    if let Value::Object(m) = value {
-        str_from_map(m, k)
-    } else {
-        Err(BadJson)
-    }
+/// Structs implementing this trait are used to display the progress of a streaming download, such
+/// as display a progress bar to the user.
+pub trait StreamProgress {
+
+    /// This method is called when the stream is initialised. It is passed the content length (a
+    /// value of 0 may indicate the content length is not known).
+    fn on_init(&self, content_len: u64);
+
+    /// This method is called each time a chunk of data is streamed. It is passed the size of the
+    /// streamed data.
+    fn on_progress(&self, chunk_len: u64);
+
+    /// This method is called to pass a new message to the user relating to the progress.
+    fn on_msg(&self, msg: &str);
 }
 
-/// Get a map from a JSON value, which is assumed to represent a JSON object. Return an error if the
-/// value is not an object.
-fn map_from_value<'a>(value: &'a Value, k: &str) -> Result<&'a Map<String, Value>, DownloadError> {
-    if let Value::Object(m) = value {
-        map_from_map(m, k)
-    } else {
-        Err(BadJson)
-    }
-}
+/// An implementation of [`StreamProgress`] that does nothing. Slightly hacky way to allow ergonomic
+/// download functions which do not need to take a concrete implementation of `StreamProgress` where
+/// the caller does not want progress tracking.
+struct _NoopProgress;
 
-trait StreamProgress {
-    fn on_init(&self, content_length: u64);
-    fn on_progress(progress: u64);
+impl StreamProgress for _NoopProgress {
+    fn on_init(&self, _: u64) {}
+    fn on_progress(&self, _: u64) {}
+    fn on_msg(&self, _: &str) {}
 }
 
 #[derive(Debug, Copy, Clone, ValueEnum, PartialEq)]
@@ -115,13 +116,13 @@ impl Display for FirdsSource {
 
 /// A single document reference, returned by searching a FIRDS database (ESMA or FCA).
 pub struct FirdsDoc {
-    /// The source of the file.
+    /// The source of the document.
     pub source: FirdsSource,
     /// A URL to download the file from.
     pub download_link: String,
     /// An ID for the file.
     pub file_id: String,
-    /// The name of the file.
+    /// The name of the (zip) file.
     pub file_name: String,
     /// The type of the file.
     pub file_type: FirdsDocType,
@@ -144,7 +145,7 @@ impl FirdsDoc {
                 checksum: Some(str_from_map(map, "checksum")?.to_owned())
             })
         } else {
-            Err(DownloadError::BadJson)
+            Err(BadJson)
         }
     }
     
@@ -183,21 +184,19 @@ impl FirdsDoc {
         Ok(())
     }
 
-    /// Download the zip file from the source.
+    /// Download the zip file from the source, tracking progress of the download.
     ///
-    /// The file is downloaded in chunks and saved to a `.part` file, which is then renamed to the
-    /// expected file name once download is complete.
-    ///
-    /// This method is wrapped by source-specific methods which should be called by the user (see
-    /// [`FirdsDoc::download_esma_zip`] and [`FirdsDoc::download_fca_zip`]).
-    pub async fn download_zip(
+    /// This method takes the same arguments as [`FirdsDoc::download_zip`] as well as an additional
+    /// `progress` argument, a struct that implements the [`StreamProgress`] trait.
+    pub async fn download_zip_with_progress(
         &self,
         client: &Client,
         to_dir: &Path,
         overwrite: bool,
         verify: bool,
-        progress: Option<&MultiProgress>
+        progress: &impl StreamProgress,
     ) -> Result<PathBuf, DownloadError> {
+        progress.on_msg("Downloading...");
         if !to_dir.exists() {
             create_dir_all(to_dir)?
         }
@@ -205,34 +204,25 @@ impl FirdsDoc {
         let mut fpath_part = OsString::from(&fpath);
         fpath_part.push(".part");
         let fpath_part: PathBuf = fpath_part.into();
-        if !overwrite {
-            if fpath.exists() {
-                return Err(DownloadError::FileExists(fpath))
-            } else if fpath_part.exists() {
-                return Err(DownloadError::FileExists(fpath_part))
-            }
-        } else if fpath_part.exists() {
+        if !overwrite && fpath.exists() {
+            return Err(DownloadError::FileExists(fpath))
+        }
+        if fpath_part.exists() {
+            // Remove .part file if present because it probably represents a failed previous attempt
+            // at downloading
             remove_file(&fpath_part)?
         }
         let resp = client.get(&self.download_link).send().await?;
         let mut file = File::create(&fpath_part)?;
-        let content_length = resp.content_length().unwrap_or(0);
+        progress.on_init(resp.content_length().unwrap_or(0));
+
         let mut stream = resp.bytes_stream();
-        if let Some(mp) = progress {
-            let pb = mp.add(ProgressBar::new(content_length));
-            pb.set_style(ProgressStyle::with_template(
-                &format!("{:<30} [{{elapsed_precise}}] {{bar:40.cyan/blue}} {{decimal_bytes:>7}}/{{decimal_total_bytes:7}}", self.file_name)
-            ).unwrap());
-            while let Some(res) = stream.next().await {
-                let bytes = res?;
-                file.write_all(&bytes)?;
-                pb.inc(bytes.iter().len() as u64)
-            }
-        } else {
-            while let Some(item) = stream.next().await {
-                file.write_all(&item?)?;
-            }
-        };
+        while let Some(res) = stream.next().await {
+            let bytes = res?;
+            file.write_all(&bytes)?;
+                progress.on_progress(bytes.len() as u64)
+
+        }
         if verify {
             self.verify_file(&fpath_part)?;
         }
@@ -240,8 +230,7 @@ impl FirdsDoc {
         Ok(fpath)
     }
 
-
-    /// Download the zip file from the ESMA FIRDS database.
+    /// Download the zip file from the source.
     ///
     /// The file is downloaded in chunks and saved to a `.part` file, which is then renamed to the
     /// expected file name once download is complete.
@@ -256,21 +245,59 @@ impl FirdsDoc {
     /// * `verify`: Whether to verify the file after it is downloaded by comparing its md5 sum
     ///   against the checksum stored in the struct. If `true` and no checksum is present in the
     ///   struct, an error will be returned.
-    pub async fn download_esma_zip(
+    ///
+    /// To track the progress of the download (eg, using a progress bar), see
+    /// [`FirdsDoc::download_zip_with_progress`].
+    pub async fn download_zip(
         &self,
         client: &Client,
         to_dir: &Path,
         overwrite: bool,
         verify: bool,
-        progress: Option<&MultiProgress>
     ) -> Result<PathBuf, DownloadError> {
-        self.download_zip(client, to_dir, overwrite, verify, progress).await
+        self.download_zip_with_progress(client, to_dir, overwrite, verify, &_NoopProgress).await
     }
 
-    /// Download the zip file from the FCA FIRDS database.
+    /// Download the XML file from the source, tracking progress of the download.
     ///
-    /// The file is downloaded in chunks and saved to a `.part` file, which is then renamed to the
-    /// expected file name once download is complete.
+    /// This method takes the same arguments as [`FirdsDoc::download_xml`] as well as an additional
+    /// `progress` argument, a struct that implements the [`StreamProgress`] trait.
+    pub async fn download_xml_with_progress(
+        &self,
+        client: &Client,
+        to_dir: &Path,
+        overwrite: bool,
+        verify: bool,
+        delete_zip: bool,
+        progress: impl StreamProgress
+    ) -> Result<PathBuf, DownloadError> {
+        let zip_fpath = self.download_zip_with_progress(
+            client,
+            to_dir,
+            overwrite,
+            verify,
+            &progress
+        ).await?;
+        let zipped_file = File::open(&zip_fpath)?;
+        let mut archive = zip::ZipArchive::new(zipped_file)?;
+        let unzipped_fname = self.file_name.replace(".zip", ".xml");
+        let mut zip_file = archive.by_name(&unzipped_fname)?;
+        let unzipped_fpath = to_dir.join(&unzipped_fname);
+        if !overwrite && unzipped_fpath.exists() {
+            return Err(DownloadError::FileExists(unzipped_fpath))
+        }
+        let mut unzipped_file = File::create(&unzipped_fpath)?;
+        progress.on_msg("Extracting...");
+
+        io::copy(&mut zip_file, &mut unzipped_file)?;
+        if delete_zip {
+            remove_file(&zip_fpath)?;
+        }
+        Ok(unzipped_fpath)
+    }
+
+    /// Download the XML file from the source, by first downloading the zip file and then
+    /// extracting. the XML file.
     ///
     /// # Arguments:
     ///
@@ -279,42 +306,32 @@ impl FirdsDoc {
     ///   does not exist.
     /// * `overwrite`: Whether to overwrite an existing file if it exists at the destination. If
     ///   `false`, an error will be returned if a file already exists.
-    pub async fn download_fca_zip(
-        &self,
-        client: &Client,
-        to_dir: &Path,
-        overwrite: bool,
-        progress: Option<&MultiProgress>
-    ) -> Result<PathBuf, DownloadError> {
-        self.download_zip(client, to_dir, overwrite, false, progress).await
-    }
-
+    /// * `verify`: Whether to verify the file after it is downloaded by comparing its md5 sum
+    ///   against the checksum stored in the struct. If `true` and no checksum is present in the
+    ///   struct, an error will be returned.
+    /// * `delete_zip`: Whether to delete the downloaded zip file once the XML file has been
+    ///   extracted.
+    ///
+    /// To track the progress of the download (eg, using a progress bar), see
+    /// [`FirdsDoc::download_xml_with_progress`].
     pub async fn download_xml(
         &self,
         client: &Client,
         to_dir: &Path,
         overwrite: bool,
         verify: bool,
-        delete_xml: bool,
-        progress: Option<&MultiProgress>
+        delete_zip: bool,
     ) -> Result<PathBuf, DownloadError> {
-        let zip_fpath = self.download_zip(client, to_dir, overwrite, verify, progress).await?;
-        let zipped_file = File::open(&zip_fpath)?;
-        let mut archive = zip::ZipArchive::new(zipped_file)?;
-        let mut zip_file = archive.by_name(&self.file_name)?;
-        let unzipped_fpath = to_dir.join(&self.file_name);
-        if !overwrite && unzipped_fpath.exists() {
-            return Err(DownloadError::FileExists(unzipped_fpath))
-        }
-        let mut unzipped_file = File::create(&unzipped_fpath)?;
-        io::copy(&mut zip_file, &mut unzipped_file)?;
-        if delete_xml {
-            remove_file(&zip_fpath)?;
-        }
-        Ok(unzipped_fpath)
+        self.download_xml_with_progress(
+            client,
+            to_dir,
+            overwrite,
+            verify,
+            delete_zip,
+            _NoopProgress
+        ).await
     }
 }
-
 
 /// Search the ESMA FIRDS database for files from the given time period and, if applicable, of the
 /// given type.
@@ -413,4 +430,38 @@ pub(crate) async fn search_fca(
         start += rows;
     }
     Ok(docs)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{NaiveDate, TimeZone, Utc};
+    use reqwest::Client;
+    use crate::download::{search_esma, search_fca};
+
+    #[tokio::test]
+    async fn test_search_fca() {
+        let client = Client::new();
+        let all_docs = search_fca(
+            &client,
+            NaiveDate::from_ymd_opt(2024, 10, 15).expect("Bad date"),
+            NaiveDate::from_ymd_opt(2024, 12, 31).expect("Bad date"),
+            None
+        ).await;
+        assert!(all_docs.is_ok());
+        assert_eq!(all_docs.unwrap().len(), 476);
+    }
+    
+    #[tokio::test]
+    async fn test_search_esma() {
+        let client = Client::new();
+        let all_docs = search_esma(
+            &client,
+            Utc.with_ymd_and_hms(2024, 10, 15, 0, 0, 0).unwrap(),
+            Utc.with_ymd_and_hms(2024, 12, 31, 23, 59, 59).unwrap(),
+            None
+        ).await;
+        assert!(all_docs.is_ok());
+        assert_eq!(all_docs.unwrap().len(), 449);
+
+    }
 }
