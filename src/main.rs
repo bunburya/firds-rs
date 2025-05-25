@@ -1,27 +1,28 @@
-#![cfg(feature = "cli")]
+#![cfg(feature = "download-cli")]
 
-use crate::download::{search_esma, search_fca, FirdsDocType, FirdsSource, StreamProgress};
 use chrono::NaiveDate;
 use clap::Parser;
 use std::path::PathBuf;
 use log::warn;
 use futures::future::join_all;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use firds::download::{search_esma, search_fca, FirdsDocType, FirdsSource, StreamProgress};
 
-mod download;
 mod error;
 
-impl StreamProgress for ProgressBar {
+struct ProgressBarHolder(ProgressBar);
+
+impl StreamProgress for ProgressBarHolder {
     fn on_init(&self, content_length: u64) {
-        self.set_length(content_length);
+        self.0.set_length(content_length);
     }
 
     fn on_progress(&self, progress: u64) {
-        self.inc(progress)
+        self.0.inc(progress)
     }
 
     fn on_msg(&self, msg: &str) {
-        self.set_message(msg.to_owned())
+        self.0.set_message(msg.to_owned())
     }
 }
 
@@ -105,7 +106,7 @@ async fn main() {
                     args.overwrite,
                     args.verify,
                     !args.keep_zip,
-                    multi_prog.add(new_progress_bar(&doc.file_name))
+                    ProgressBarHolder(multi_prog.add(new_progress_bar(&doc.file_name)))
                 )
             });
         join_all(f).await;

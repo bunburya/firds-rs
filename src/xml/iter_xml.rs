@@ -3,7 +3,7 @@ use std::io::BufRead;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::ResolveResult;
 use quick_xml::NsReader;
-use crate::error::ParseError;
+use crate::xml::error::ParseError;
 
 #[derive(Debug, Default)]
 pub(crate) struct Element {

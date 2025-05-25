@@ -1,7 +1,66 @@
-[workspace]
-members = [
-    "firds",
-    "firds-xml",
-    "firds-dl",
-    "firds-sql"
+[package]
+name = "firds"
+edition = "2021"
+
+[dependencies]
+# Core
+chrono = "0.4.41"
+strum = "0.27.1"
+strum_macros = "0.27.1"
+
+# Download
+log = { version = "0.4.27", optional = true }
+serde_json = { version = "1.0.140", optional = true }
+reqwest = { version = "0.12.15", features = ["stream", "json"], optional = true }
+futures-util = { version = "0.3.31", optional = true }
+md-5 = { version = "0.11.0-pre.5", optional = true }
+base16ct = { version = "0.2.0", features = ["alloc"], optional = true }
+zip = { version = "4.0.0", optional = true }
+url = { version = "2.5.4", optional = true }
+tokio = { version = "1.0.0", features = ["rt", "rt-multi-thread", "macros"], optional = true }
+futures = {  version = "0.3.31", optional = true }
+
+# Download CLI
+clap = { version = "4.5.38", features = ["derive"], optional = true }
+indicatif = { version = "0.17.11", features = ["futures"], optional = true }
+
+# XML
+quick-xml = { version = "0.37.5", optional = true }
+
+# SQL
+sqlx = { version = "0.8.6", optional = true}
+
+[features]
+download = [
+    "dep:log",
+    "dep:serde_json",
+    "dep:reqwest",
+    "dep:futures-util",
+    "dep:md-5",
+    "dep:base16ct",
+    "dep:zip",
+    "dep:url",
+    "dep:tokio",
+    "dep:futures"
 ]
+download-cli = [
+    "download",
+    "dep:clap",
+    "dep:indicatif"
+]
+xml = [
+    "dep:quick-xml"
+]
+sql = [
+    "dep:sqlx"
+]
+all = [
+    "download",
+    "xml",
+    "sql"
+]
+
+[[bin]]
+name = "firds-dl"
+path = "src/main.rs"
+required-features = ["download-cli"]

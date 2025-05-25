@@ -1,9 +1,9 @@
 use std::str::FromStr;
 use chrono::NaiveDate;
-use firds::{AssetClassSpecificAttributes, BaseProduct, CommodityDerivativeAttributes, DebtAttributes, DebtSeniority, DeliveryType, DerivativeAttributes, DerivativeUnderlying, FinalPriceType, FloatingRate, FxDerivativeAttributes, FxType, Index, IndexName, InterestRate, InterestRateDerivativeAttributes, ModifiedRecord, NewRecord, OptionExerciseStyle, OptionType, PublicationPeriod, ReferenceData, StrikePrice, StrikePriceType, TechnicalAttributes, Term, TermUnit, TerminatedRecord, TradingVenueAttributes, TransactionType, UnderlyingBasket, UnderlyingSingle};
-use crate::error::ParseError;
-use crate::iter_xml::Element;
-use crate::parse_utils::{child_or_none, date_or_none, datetime_or_none, parse_or_none, text_or_none};
+use crate::*;
+use crate::xml::error::ParseError;
+use crate::xml::iter_xml::Element;
+use crate::xml::parse_utils::{child_or_none, date_or_none, datetime_or_none, parse_or_none, text_or_none};
 
 pub trait FromXml: Sized {
 
@@ -239,7 +239,7 @@ impl FromXml for UnderlyingSingle {
                 "ISIN" => Ok(Self::Isin(child.text.to_owned())),
                 "LEI" => Ok(Self::Lei(child.text.to_owned())),
                 "Indx" => Ok(Self::Index(Index::from_xml(child)?)),
-                _ => Err(ParseError::Firds(firds::ParseError::Enum))
+                _ => Err(ParseError::Firds(crate::ParseError::Enum))
             }
         } else {
             Err(ParseError::ElementNotFound)
@@ -417,21 +417,38 @@ impl FromXml for BaseProduct {
 
 #[cfg(test)]
 mod tests {
-    use crate::iter_xml::XmlIterator;
-    use firds::{CommodityDerivativeAttributes, DebtAttributes, DerivativeAttributes, FloatingRate, FxDerivativeAttributes, InterestRate, InterestRateDerivativeAttributes, ModifiedRecord, NewRecord, PublicationPeriod, ReferenceData, StrikePrice, TechnicalAttributes, TerminatedRecord, TradingVenueAttributes};
+    use crate::xml::iter_xml::XmlIterator;
+    use crate::{
+        CommodityDerivativeAttributes,
+        DebtAttributes,
+        DerivativeAttributes,
+        FloatingRate,
+        FxDerivativeAttributes,
+        InterestRate,
+        InterestRateDerivativeAttributes,
+        ModifiedRecord,
+        NewRecord,
+        PublicationPeriod,
+        ReferenceData,
+        StrikePrice,
+        TechnicalAttributes,
+        TerminatedRecord,
+        TradingVenueAttributes
+    };
     use std::env::current_dir;
     use std::fs::File;
     use std::io::BufReader;
     use std::path::PathBuf;
-    use crate::from_xml::FromXml;
+    use crate::xml::from_xml::FromXml;
 
     fn get_firds_data_dir() -> PathBuf {
-        current_dir().unwrap().join("../test_data").join("firds_data")
+        current_dir().unwrap().join("test_data").join("firds_data")
     }
 
     fn test_parsing_xml<T: FromXml>(tag: &str, files: Vec<(&str, i32)>) {
         for (fname, count) in files {
             let path = get_firds_data_dir().join("esma").join(fname);
+            println!("{path:?}");
             let file = File::open(path).unwrap();
             let reader = BufReader::new(file);
             let xml_iter = XmlIterator::new(tag, reader);

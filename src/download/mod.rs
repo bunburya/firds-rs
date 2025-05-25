@@ -1,7 +1,6 @@
-use crate::error::DownloadError;
-use crate::error::DownloadError::{BadJson, JsonMapKeyNotFound};
+mod error;
+
 use chrono::{DateTime, FixedOffset, NaiveDate, Utc};
-use clap::ValueEnum;
 use futures_util::StreamExt;
 use md5::{Digest, Md5};
 use reqwest::Client;
@@ -13,6 +12,11 @@ use std::io;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
+use crate::download::error::DownloadError;
+
+#[cfg(feature = "download-cli")]
+use clap::ValueEnum;
+
 
 const ESMA_BASE_URL: &str = "https://registers.esma.europa.eu/solr/esma_registers_firds_files/select";
 const FCA_BASE_URL: &str = "https://api.data.fca.org.uk/fca_data_firds_files";
@@ -20,17 +24,17 @@ const FCA_BASE_URL: &str = "https://api.data.fca.org.uk/fca_data_firds_files";
 /// Get a string from a JSON object, or return an error.
 fn str_from_map<'a>(map: &'a Map<String, Value>, k: &str) -> Result<&'a str, DownloadError> {
     map.get(k)
-        .ok_or(JsonMapKeyNotFound(k.to_owned()))?
+        .ok_or(DownloadError::JsonMapKeyNotFound(k.to_owned()))?
         .as_str()
-        .ok_or(BadJson)
+        .ok_or(DownloadError::BadJson)
 }
 
 /// Get a map from a JSON object, or return an error.
 fn map_from_map<'a>(map: &'a Map<String, Value>, k: &str) -> Result<&'a Map<String, Value>, DownloadError> {
     map.get(k)
-        .ok_or(JsonMapKeyNotFound(k.to_owned()))?
+        .ok_or(DownloadError::JsonMapKeyNotFound(k.to_owned()))?
         .as_object()
-        .ok_or(BadJson)
+        .ok_or(DownloadError::BadJson)
 }
 
 /// Structs implementing this trait are used to display the progress of a streaming download, such
@@ -60,7 +64,8 @@ impl StreamProgress for _NoopProgress {
     fn on_msg(&self, _: &str) {}
 }
 
-#[derive(Debug, Copy, Clone, ValueEnum, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "download-cli", derive(ValueEnum))]
 pub enum FirdsDocType {
     Fulins,
     Dltins,
@@ -72,10 +77,6 @@ impl FromStr for FirdsDocType {
 
     /// Parse an *upper-case* string (one of "FULINS", "DLTINS" or "FULCAN") into a variant of
     /// [`FirdsDocType`].
-    ///
-    /// **NOTE**: [`FirdsDocType`] also has an implementation of `from_str` which is provided as a
-    /// result of implementing [`ValueEnum`]. That function is used to parse command line arguments
-    /// and, unlike this one, operates on *lower-case* strings.
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "FULINS" => Ok(Self::Fulins),
@@ -97,7 +98,8 @@ impl Display for FirdsDocType {
 }
 
 /// Where we are downloading the data from (ESMA or FCA).
-#[derive(Debug, Copy, Clone, ValueEnum, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
+#[cfg_attr(feature = "download-cli", derive(ValueEnum))]
 pub enum FirdsSource {
     /// European Securities and Markets Authority (EU).
     Esma,
@@ -145,10 +147,10 @@ impl FirdsDoc {
                 checksum: Some(str_from_map(map, "checksum")?.to_owned())
             })
         } else {
-            Err(BadJson)
+            Err(DownloadError::BadJson)
         }
     }
-    
+
     pub fn from_fca_json(json: &Value) -> Result<Self, DownloadError> {
         if let Value::Object(map) = json {
             let source_json = map_from_map(map, "_source")?;
@@ -162,7 +164,7 @@ impl FirdsDoc {
                 checksum: None
             })
         } else {
-            Err(BadJson)
+            Err(DownloadError::BadJson)
         }
     }
 
@@ -220,7 +222,7 @@ impl FirdsDoc {
         while let Some(res) = stream.next().await {
             let bytes = res?;
             file.write_all(&bytes)?;
-                progress.on_progress(bytes.len() as u64)
+            progress.on_progress(bytes.len() as u64)
 
         }
         if verify {
@@ -367,15 +369,21 @@ pub async fn search_esma(
         )?;
         let text = client.get(url).send().await?.text().await?;
         let json: Value = serde_json::from_str(&text)?;
-        let resp_body = json.get("response").and_then(Value::as_object).ok_or(BadJson)?;
+        let resp_body = json.get("response")
+            .and_then(Value::as_object)
+            .ok_or(DownloadError::BadJson)?;
         if num_found < 0 {
-            num_found= resp_body.get("numFound").and_then(Value::as_i64).ok_or(BadJson)?;
+            num_found= resp_body.get("numFound")
+                .and_then(Value::as_i64)
+                .ok_or(DownloadError::BadJson)?;
         }
-        let resp = json.get("response").and_then(Value::as_object).ok_or(BadJson)?;
+        let resp = json.get("response")
+            .and_then(Value::as_object)
+            .ok_or(DownloadError::BadJson)?;
         docs.extend(
             resp.get("docs")
                 .and_then(Value::as_array)
-                .ok_or(BadJson)?
+                .ok_or(DownloadError::BadJson)?
                 .iter()
                 .map(FirdsDoc::from_esma_json)
                 .collect::<Result<Vec<FirdsDoc>, DownloadError>>()?
@@ -415,14 +423,18 @@ pub async fn search_fca(
         )?;
         let text = client.get(url).send().await?.text().await?;
         let json: Value = serde_json::from_str(&text)?;
-        let resp_body = json.get("hits").and_then(Value::as_object).ok_or(BadJson)?;
+        let resp_body = json.get("hits")
+            .and_then(Value::as_object)
+            .ok_or(DownloadError::BadJson)?;
         if num_found < 0 {
-            num_found= resp_body.get("total").and_then(Value::as_i64).ok_or(BadJson)?;
+            num_found= resp_body.get("total")
+                .and_then(Value::as_i64)
+                .ok_or(DownloadError::BadJson)?;
         }
         docs.extend(
             resp_body.get("hits")
                 .and_then(Value::as_array)
-                .ok_or(BadJson)?
+                .ok_or(DownloadError::BadJson)?
                 .iter()
                 .map(FirdsDoc::from_fca_json)
                 .collect::<Result<Vec<FirdsDoc>, DownloadError>>()?
@@ -450,7 +462,7 @@ mod tests {
         assert!(all_docs.is_ok());
         assert_eq!(all_docs.unwrap().len(), 476);
     }
-    
+
     #[tokio::test]
     async fn test_search_esma() {
         let client = Client::new();

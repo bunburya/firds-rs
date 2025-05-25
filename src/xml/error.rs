@@ -1,4 +1,4 @@
-use crate::error::ProductParseError::BadSubProduct;
+use crate::xml::error::ProductParseError::BadSubProduct;
 use quick_xml::events::attributes::AttrError;
 use std::num::{ParseFloatError, ParseIntError};
 use std::str::ParseBoolError;
@@ -41,7 +41,7 @@ pub enum ParseError {
     /// Something returned [`None`] when we expected [`Some`].
     NoneFound,
     /// Error constructing a `firds` struct.
-    Firds(firds::ParseError)
+    Firds(crate::ParseError)
 }
 
 impl From<AttrError> for ParseError {
@@ -80,21 +80,21 @@ impl From<chrono::ParseError> for ParseError {
     }
 }
 
-impl From<firds::ParseError> for ParseError {
-    fn from(e: firds::ParseError) -> Self {
+impl From<crate::ParseError> for ParseError {
+    fn from(e: crate::ParseError) -> Self {
         Self::Firds(e)
     }
 }
 
-impl From<firds::ProductError> for ParseError {
-    fn from(e: firds::ProductError) -> Self {
-        Self::Firds(firds::ParseError::from(e))
+impl From<crate::ProductError> for ParseError {
+    fn from(e: crate::ProductError) -> Self {
+        Self::Firds(crate::ParseError::from(e))
     }
 }
 
 impl From<strum::ParseError> for ParseError {
     fn from(e: strum::ParseError) -> Self {
-        Self::Firds(firds::ParseError::from(e))
+        Self::Firds(crate::ParseError::from(e))
     }
 }
 

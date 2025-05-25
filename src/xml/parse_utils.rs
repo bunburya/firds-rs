@@ -1,5 +1,5 @@
-use crate::error::ParseError;
-use crate::iter_xml::Element;
+use crate::xml::error::ParseError;
+use crate::xml::iter_xml::Element;
 use chrono::{DateTime, NaiveDate, Utc};
 use std::str::FromStr;
 

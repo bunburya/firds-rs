@@ -2,7 +2,6 @@ use crate::categories::{DebtSeniority, DeliveryType, FinalPriceType, FxType, Ind
 use crate::product::BaseProduct;
 use chrono::{DateTime, NaiveDate, Utc};
 
-
 /// The term of an index or benchmark.
 #[derive(Debug)]
 pub struct Term {
@@ -11,7 +10,6 @@ pub struct Term {
     /// The unit of time in which the term is expressed (days, weeks, months or years).
     pub unit: TermUnit,
 }
-
 
 /// The strike price of a derivative instrument.
 #[derive(Debug)]
@@ -65,7 +63,6 @@ pub struct TradingVenueAttributes {
     /// venue.
     pub termination_date: Option<DateTime<Utc>>,
 }
-
 
 /// Data about the interest rate applicable to a debt instrument.
 #[derive(Debug)]
@@ -278,13 +275,11 @@ pub struct ReferenceData {
     pub derivative_attributes: Option<DerivativeAttributes>,
 }
 
-
 /// Reference data for a newly added financial instrument.
 pub struct NewRecord(pub ReferenceData);
 
 /// Modified reference data for a financial instrument.
 pub struct ModifiedRecord(pub ReferenceData);
-
 
 /// Reference data for a financial instrument that has ceased being traded on a trading venue.
 pub struct TerminatedRecord(pub ReferenceData);
