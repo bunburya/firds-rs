@@ -12,7 +12,7 @@ pub enum DownloadError {
     BadJson,
     /// Error parsing an enum value from text.
     EnumParseError(String),
-    /// Error parsing a [`DateTime`] from a string.
+    /// Error parsing a [`chrono::DateTime`] from a string.
     BadDateTime(chrono::ParseError),
     /// Input/output error.
     IoError(io::Error),

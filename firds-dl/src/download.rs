@@ -61,7 +61,7 @@ impl StreamProgress for _NoopProgress {
 }
 
 #[derive(Debug, Copy, Clone, ValueEnum, PartialEq)]
-pub(crate) enum FirdsDocType {
+pub enum FirdsDocType {
     Fulins,
     Dltins,
     Fulcan
@@ -98,7 +98,7 @@ impl Display for FirdsDocType {
 
 /// Where we are downloading the data from (ESMA or FCA).
 #[derive(Debug, Copy, Clone, ValueEnum, PartialEq)]
-pub(crate) enum FirdsSource {
+pub enum FirdsSource {
     /// European Securities and Markets Authority (EU).
     Esma,
     /// Financial Conduct Authority (UK).
@@ -335,7 +335,7 @@ impl FirdsDoc {
 
 /// Search the ESMA FIRDS database for files from the given time period and, if applicable, of the
 /// given type.
-pub(crate) async fn search_esma(
+pub async fn search_esma(
     client: &Client,
     from_datetime: DateTime<Utc>,
     to_datetime: DateTime<Utc>,
@@ -385,7 +385,7 @@ pub(crate) async fn search_esma(
     Ok(docs)
 }
 
-pub(crate) async fn search_fca(
+pub async fn search_fca(
     client: &Client,
     from_date: NaiveDate,
     to_date: NaiveDate,

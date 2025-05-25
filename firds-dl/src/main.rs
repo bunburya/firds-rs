@@ -1,6 +1,8 @@
-use crate::download::{search_esma, search_fca, FirdsDoc, FirdsDocType, FirdsSource, StreamProgress};
+#![cfg(feature = "cli")]
+
+use crate::download::{search_esma, search_fca, FirdsDocType, FirdsSource, StreamProgress};
 use chrono::NaiveDate;
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use std::path::PathBuf;
 use log::warn;
 use futures::future::join_all;
