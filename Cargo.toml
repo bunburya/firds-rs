@@ -28,7 +28,7 @@ indicatif = { version = "0.17.11", features = ["futures"], optional = true }
 quick-xml = { version = "0.37.5", optional = true }
 
 # SQL
-sqlx = { version = "0.8.6", optional = true}
+sqlx = { version = "0.8.6", optional = true, features = ["runtime-tokio", "sqlite"] }
 
 [features]
 download = [
@@ -52,7 +52,7 @@ xml = [
     "dep:quick-xml"
 ]
 sql = [
-    "dep:sqlx"
+    "dep:sqlx",
 ]
 all = [
     "download",

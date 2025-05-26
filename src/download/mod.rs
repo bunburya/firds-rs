@@ -472,7 +472,7 @@ mod tests {
             Utc.with_ymd_and_hms(2024, 12, 31, 23, 59, 59).unwrap(),
             None
         ).await;
-        assert!(all_docs.is_ok());
+        //assert!(all_docs.is_ok());
         assert_eq!(all_docs.unwrap().len(), 449);
 
     }

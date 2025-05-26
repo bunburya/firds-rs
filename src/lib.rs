@@ -15,6 +15,9 @@ pub mod download;
 #[cfg(feature = "xml")]
 pub mod xml;
 
+#[cfg(feature = "sql")]
+mod sql;
+
 pub use model::*;
 pub use enums::*;
 pub use product_enums::*;
