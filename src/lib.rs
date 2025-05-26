@@ -5,8 +5,8 @@
 //! accessing the data and constructing the crates.
 
 mod model;
-mod categories;
-mod product;
+mod enums;
+mod product_enums;
 mod error;
 
 #[cfg(feature = "download")]
@@ -16,6 +16,6 @@ pub mod download;
 pub mod xml;
 
 pub use model::*;
-pub use categories::*;
-pub use product::*;
+pub use enums::*;
+pub use product_enums::*;
 pub use error::*;

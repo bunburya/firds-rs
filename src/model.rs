@@ -1,5 +1,5 @@
-use crate::categories::{DebtSeniority, DeliveryType, FinalPriceType, FxType, IndexName, OptionExerciseStyle, OptionType, StrikePriceType, TermUnit, TransactionType};
-use crate::product::BaseProduct;
+use crate::enums::{DebtSeniority, DeliveryType, FinalPriceType, FxType, IndexName, OptionExerciseStyle, OptionType, StrikePriceType, TermUnit, TransactionType};
+use crate::product_enums::BaseProduct;
 use chrono::{DateTime, NaiveDate, Utc};
 
 /// The term of an index or benchmark.
