@@ -3,7 +3,7 @@ use std::io::BufRead;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::ResolveResult;
 use quick_xml::NsReader;
-use crate::xml::error::ParseError;
+use crate::xml::error::XmlError;
 
 #[derive(Debug, Default)]
 pub(crate) struct Element {
@@ -50,8 +50,8 @@ impl Element {
 
     /// Return the first immediate child [`Element`] with the given tag name. Return an error if no
     /// such child is present.
-    pub(crate) fn get_child(&self, tag_name: &str) -> Result<&Element, ParseError> {
-        self.find_child(tag_name).ok_or(ParseError::ElementNotFound)
+    pub(crate) fn get_child(&self, tag_name: &str) -> Result<&Element, XmlError> {
+        self.find_child(tag_name).ok_or(XmlError::ElementNotFound)
     }
 
     /// Search for the given attribute and return it or `None`.
@@ -61,8 +61,8 @@ impl Element {
 
     /// Return the value for the attribute with the given name. Return an error if no such attribute
     /// is present.
-    pub(crate) fn get_attr(&self, key: &str) -> Result<&String, ParseError> {
-        self.find_attr(key).ok_or(ParseError::AttributeNotFound)
+    pub(crate) fn get_attr(&self, key: &str) -> Result<&String, XmlError> {
+        self.find_attr(key).ok_or(XmlError::AttributeNotFound)
     }
 
     /// Return the first child element, or `None`, if the element has no children.
@@ -71,8 +71,8 @@ impl Element {
     }
 
     /// Return the first child element, or an error if the element has no children.
-    pub(crate) fn get_first_child(&self) -> Result<&Element, ParseError> {
-        self.find_first_child().ok_or(ParseError::ElementNotFound)
+    pub(crate) fn get_first_child(&self) -> Result<&Element, XmlError> {
+        self.find_first_child().ok_or(XmlError::ElementNotFound)
     }
 
     /// Return an iterator over the element's children.
@@ -97,7 +97,7 @@ impl<'a, R: BufRead> XmlIterator<'a, R> {
     pub fn parse_start(
         &mut self,
         start: BytesStart,
-    ) -> Result<Element, ParseError> {
+    ) -> Result<Element, XmlError> {
         let mut buf = Vec::new();
         let (resolve_res, local_name) = self.reader.resolve_element(start.name());
         let namespace = match resolve_res {
@@ -152,7 +152,7 @@ impl<'a, R: BufRead> XmlIterator<'a, R> {
 }
 
 impl<'a, R: BufRead> Iterator for XmlIterator<'a, R> {
-    type Item = Result<Element, ParseError>;
+    type Item = Result<Element, XmlError>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let mut buf = Vec::new();

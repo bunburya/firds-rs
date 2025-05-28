@@ -17,7 +17,7 @@ impl From<strum::ParseError> for ProductParseError {
 }
 
 #[derive(Debug)]
-pub enum ParseError {
+pub enum XmlError {
     /// Error parsing XML attributes.
     Attr(AttrError),
     /// Error parsing XML using the `quick_xml` crate.
@@ -40,61 +40,68 @@ pub enum ParseError {
     TextNotFound,
     /// Something returned [`None`] when we expected [`Some`].
     NoneFound,
+    /// IO error.
+    Io(std::io::Error),
     /// Error constructing a `firds` struct.
     Firds(crate::ParseError)
 }
 
-impl From<AttrError> for ParseError {
+impl From<AttrError> for XmlError {
     fn from(e: AttrError) -> Self {
         Self::Attr(e)
     }
 }
 
-impl From<quick_xml::Error> for ParseError {
+impl From<quick_xml::Error> for XmlError {
     fn from(e: quick_xml::Error) -> Self {
         Self::QuickXml(e)
     }
 }
 
-impl From<ParseIntError> for ParseError {
+impl From<ParseIntError> for XmlError {
     fn from(e: ParseIntError) -> Self {
         Self::Int(e)
     }
 }
 
-impl From<ParseFloatError> for ParseError {
+impl From<ParseFloatError> for XmlError {
     fn from(e: ParseFloatError) -> Self {
         Self::Float(e)
     }
 }
 
-impl From<ParseBoolError> for ParseError {
+impl From<ParseBoolError> for XmlError {
     fn from(e: ParseBoolError) -> Self {
         Self::Bool(e)
     }
 }
 
-impl From<chrono::ParseError> for ParseError {
+impl From<chrono::ParseError> for XmlError {
     fn from(e: chrono::ParseError) -> Self {
         Self::DateTime(e)
     }
 }
 
-impl From<crate::ParseError> for ParseError {
+impl From<crate::ParseError> for XmlError {
     fn from(e: crate::ParseError) -> Self {
         Self::Firds(e)
     }
 }
 
-impl From<crate::ProductError> for ParseError {
+impl From<crate::ProductError> for XmlError {
     fn from(e: crate::ProductError) -> Self {
         Self::Firds(crate::ParseError::from(e))
     }
 }
 
-impl From<strum::ParseError> for ParseError {
+impl From<strum::ParseError> for XmlError {
     fn from(e: strum::ParseError) -> Self {
         Self::Firds(crate::ParseError::from(e))
     }
 }
 
+impl From<std::io::Error> for XmlError {
+    fn from(e: std::io::Error) -> Self {
+        Self::Io(e)
+    }
+}

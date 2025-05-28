@@ -1,19 +1,19 @@
 use std::str::FromStr;
 use chrono::NaiveDate;
 use crate::*;
-use crate::xml::error::ParseError;
+use crate::xml::error::XmlError;
 use crate::xml::iter_xml::Element;
 use crate::xml::parse_utils::{child_or_none, date_or_none, datetime_or_none, parse_or_none, text_or_none};
 
 pub trait FromXml: Sized {
 
     /// Try to create an instance of `Self` from the given [`Element`].
-    fn from_xml(elem: &Element) -> Result<Self, ParseError>;
+    fn from_xml(elem: &Element) -> Result<Self, XmlError>;
 
     /// Try to construct an instance of `Self` from the given [`Element`], if provided, otherwise
-    /// return `None`. Returns a [`ParseError`] if an `Element` was encountered but could not be
+    /// return `None`. Returns a [`XmlError`] if an `Element` was encountered but could not be
     /// converted to an instance of `Self`.
-    fn from_xml_option(elem: Option<&Element>) -> Result<Option<Self>, ParseError> {
+    fn from_xml_option(elem: Option<&Element>) -> Result<Option<Self>, XmlError> {
         if let Some(e) = elem {
             Ok(Some(Self::from_xml(e)?))
         } else {
@@ -25,7 +25,7 @@ pub trait FromXml: Sized {
 
 impl FromXml for Term {
     /// Parse a `Fltg/Term` XML element from FIRDS data into an [`Term`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         let number = elem.get_child("Val")?.text.parse::<i32>()?;
         let unit = TermUnit::try_from(elem.get_child("Unit")?.text.as_str())?;
         Ok(Self {
@@ -37,7 +37,7 @@ impl FromXml for Term {
 
 impl FromXml for StrikePrice {
     /// Parse a `DerivInstrmAttrbts/StrkPric` XML element from FIRDS into a [`StrikePrice`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         if let Some(price_elem) = elem.find_child("Pric") {
             let monetary_val_elem = price_elem.find_child("MntryVal");
             let (price_type, val_elem) = if let Some(e) = child_or_none(monetary_val_elem, "Amt") {
@@ -49,7 +49,7 @@ impl FromXml for StrikePrice {
             } else if let Some(e) = price_elem.find_child("BsisPts") {
                 (StrikePriceType::BasisPoints, e)
             } else {
-                return Err(ParseError::ElementNotFound)
+                return Err(XmlError::ElementNotFound)
             };
             let price = val_elem.text.parse::<f64>()?;
             let currency = text_or_none(child_or_none(monetary_val_elem, "Ccy"))
@@ -76,7 +76,7 @@ impl FromXml for StrikePrice {
 
 impl FromXml for FloatingRate {
     /// Parse an XML element of type `FloatingInterestRate8` into a [`FloatingRate`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         let ref_rate_elem = elem.get_child("RefRate")?;
         let name = if let Some(text) = text_or_none(ref_rate_elem.find_child("Indx")) {
             Some(IndexName::from_str(text)?)
@@ -94,7 +94,7 @@ impl FromXml for FloatingRate {
 
 impl FromXml for Index {
     /// Parse an XML element of type `FinancialInstrument58` into an [`Index`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self {
             isin: text_or_none(elem.find_child("ISIN")).map(String::from),
             name: FloatingRate::from_xml(elem.get_child("Nm")?)?
@@ -104,7 +104,7 @@ impl FromXml for Index {
 
 impl FromXml for TradingVenueAttributes {
     /// Parse a `TradgVnRltdAttrbts` XML element from FIRDS into a `TradingVenueAttributes` struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self {
             trading_venue: elem.get_child("Id")?.text.to_owned(),
             requested_admission: elem.get_child("IssrReq")?.text.parse::<bool>()?,
@@ -123,7 +123,7 @@ impl FromXml for InterestRate {
     /// This is designed to work with `IntrstRate` elements of types `InterestRate6Choice` and
     /// `FloatingInterestRate8`. The difference is that the former specifies a basis point spread
     /// whereas the latter does not.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
 
         Ok(if let Some(fltg) = elem.find_child("Fltg") {
             Self::Floating(
@@ -139,7 +139,7 @@ impl FromXml for InterestRate {
 impl FromXml for PublicationPeriod {
 
     /// Parse a `PblctnPrd` XML element from FIRDS data into a [`PublicationPeriod`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(if let Some(fdtd) = elem.find_child("FrDtToDt") {
             Self {
                 from_date: NaiveDate::parse_from_str(&fdtd.text, "%Y-%m-%d")?,
@@ -157,7 +157,7 @@ impl FromXml for PublicationPeriod {
 impl FromXml for TechnicalAttributes {
 
     /// Parse a `TechAttrbts` XML element from FIRDS data into a [`TechnicalAttributes`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self {
             relevant_competent_authority: text_or_none(elem.find_child("RlvntCmptntAuthrty"))
                 .map(String::from),
@@ -169,7 +169,7 @@ impl FromXml for TechnicalAttributes {
 
 impl FromXml for DebtAttributes {
     /// Parse a `DebtInstrmAttrbts` XML element from FIRDS data into a [`DebtAttributes`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         let issued_amount_elem = elem.get_child("TtlIssdNmnlAmt")?;
         Ok(Self {
             total_issued_amount: issued_amount_elem.text.parse()?,
@@ -185,7 +185,7 @@ impl FromXml for DebtAttributes {
 impl FromXml for CommodityDerivativeAttributes {
     /// Parse a `DerivInstrmAttrbts/AsstClssSpcfcAttrbts/Cmmdty` XML element from FIRDS data into a
     /// [`CommodityDerivativeAttributes`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         // Normal structure is `Pdct/<base product>/<sub product>/BasePdct`, but if the base product
         // does not have an associated sub product then structure will be
         // `Pdct/<base product>/BasePdct`. So we first check for `BasePdct` two levels down, if it's
@@ -211,7 +211,7 @@ impl FromXml for CommodityDerivativeAttributes {
 impl FromXml for InterestRateDerivativeAttributes {
     /// Parse a `DerivInstrmAttrbts/AsstClssSpcfcAttrbts/Intrst` XML element from FIRDS into a
     /// [`InterestRateDerivativeAttributes`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self {
             reference_rate: FloatingRate::from_xml(elem.get_child("IntrstRate")?)?,
             interest_rate_1: InterestRate::from_xml_option(elem.find_child("FirstLegIntrstRate"))?,
@@ -224,7 +224,7 @@ impl FromXml for InterestRateDerivativeAttributes {
 impl FromXml for FxDerivativeAttributes {
     /// Parse a `DerivInstrmAttrbts/AsstClssSpcfcAttrbts/FX` XML element from FIRDS into a
     /// [`FxDerivativeAttributes`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self {
             notional_currency_2: text_or_none(elem.find_child("OthrNtnlCcy")).map(String::from),
             fx_type: FxType::from_xml_option(elem.find_child("FxTp"))?
@@ -233,30 +233,30 @@ impl FromXml for FxDerivativeAttributes {
 }
 
 impl FromXml for UnderlyingSingle {
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         if let Some(child) = elem.find_first_child() {
             match child.local_name.as_str() {
                 "ISIN" => Ok(Self::Isin(child.text.to_owned())),
                 "LEI" => Ok(Self::Lei(child.text.to_owned())),
                 "Indx" => Ok(Self::Index(Index::from_xml(child)?)),
-                _ => Err(ParseError::Firds(crate::ParseError::Enum))
+                _ => Err(XmlError::Firds(crate::ParseError::Enum))
             }
         } else {
-            Err(ParseError::ElementNotFound)
+            Err(XmlError::ElementNotFound)
         }
     }
 }
 
 impl FromXml for UnderlyingBasket {
     /// Parse an XML element of type `FinancialInstrument53` into an [`UnderlyingBasket`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         let mut isin = vec![];
         let mut issuer_lei = vec![];
         for c in elem.iter_children() {
             match c.local_name.as_str() {
                 "ISIN" => isin.push(c.text.to_owned()),
                 "LEI" => issuer_lei.push(c.text.to_owned()),
-                _ => return Err(ParseError::UnexpectedElement)
+                _ => return Err(XmlError::UnexpectedElement)
             }
         }
         Ok(Self {
@@ -269,15 +269,15 @@ impl FromXml for UnderlyingBasket {
 impl FromXml for DerivativeUnderlying {
     /// Parse an XML element of type `FinancialInstrumentIdentification5Choice` into a
     /// [`DerivativeUnderlying`] struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         if let Some(child) = elem.find_first_child() {
             match child.local_name.as_str() {
                 "Sngl" => Ok(Self::Single(UnderlyingSingle::from_xml(child)?)),
                 "Bskt" => Ok(Self::Basket(UnderlyingBasket::from_xml(child)?)),
-                _ => Err(ParseError::UnexpectedElement)
+                _ => Err(XmlError::UnexpectedElement)
             }
         } else {
-            Err(ParseError::ElementNotFound)
+            Err(XmlError::ElementNotFound)
         }
     }
 }
@@ -285,14 +285,14 @@ impl FromXml for DerivativeUnderlying {
 impl FromXml for AssetClassSpecificAttributes {
     /// Parse an XML element of type `AssetClass2__1` into an [`AssetClassSpecificAttributes`]
     /// struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         let mut attrs = Self::default();
         for c in elem.iter_children() {
             match c.local_name.as_str() {
                 "Cmmdty" => attrs.commodity_attributes = Some(CommodityDerivativeAttributes::from_xml(c)?),
                 "Intrst" => attrs.ir_attributes = Some(InterestRateDerivativeAttributes::from_xml(c)?),
                 "FX" => attrs.fx_attributes = Some(FxDerivativeAttributes::from_xml(c)?),
-                _ => return Err(ParseError::UnexpectedElement)
+                _ => return Err(XmlError::UnexpectedElement)
             }
         }
         Ok(attrs)
@@ -302,7 +302,7 @@ impl FromXml for AssetClassSpecificAttributes {
 impl FromXml for DerivativeAttributes {
     /// Parse an XML element of type `DerivativeInstrument5__1` into a [`DerivativeAttributes`]
     /// struct.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         let mut attrs = DerivativeAttributes::default();
         for c in elem.iter_children() {
             match c.local_name.as_str() {
@@ -323,7 +323,7 @@ impl FromXml for DerivativeAttributes {
                 "AsstClssSpcfcAttrbts" =>
                     attrs.asset_class_specific_attributes
                         = Some(AssetClassSpecificAttributes::from_xml(c)?),
-                _ => return Err(ParseError::UnexpectedElement)
+                _ => return Err(XmlError::UnexpectedElement)
             }
         }
         Ok(attrs)
@@ -331,7 +331,7 @@ impl FromXml for DerivativeAttributes {
 }
 
 impl FromXml for ReferenceData {
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         let gen_attrs = elem.get_child("FinInstrmGnlAttrbts")?;
         Ok(Self {
             isin: gen_attrs.get_child("Id")?.text.to_owned(),
@@ -358,46 +358,46 @@ impl FromXml for ReferenceData {
 }
 
 impl FromXml for NewRecord {
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self(ReferenceData::from_xml(elem)?))
     }
 }
 
 impl FromXml for ModifiedRecord {
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self(ReferenceData::from_xml(elem)?))
     }
 }
 
 impl FromXml for TerminatedRecord {
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self(ReferenceData::from_xml(elem)?))
     }
 }
 
 impl FromXml for DebtSeniority {
     /// Parse a `DebtSnrty` XML element from FIRDS data into a [`DebtSeniority`] enum.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self::from_str(&elem.text)?)
     }
 }
 
 impl FromXml for TransactionType {
     /// Parse a `TxTp` XML element from FIRDS data into a [`TransactionType`] enum.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self::from_str(&elem.text)?)
     }
 }
 
 impl FromXml for FinalPriceType {
     /// Parse a `FnlPricTp` XML element from FIRDS data into a [`FinalPriceType`] enum.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self::from_str(&elem.text)?)
     }
 }
 
 impl FromXml for FxType {
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self::from_str(&elem.text)?)
     }
 }
@@ -406,7 +406,7 @@ impl FromXml for BaseProduct {
     /// Parse an appropriate XML element into a [`BaseProduct`] enum. The XML element can be of any
     /// kind that contains at least a `BasePdct` element and optionally `SubPdct` and `AddtlSubPdct`
     /// elements.
-    fn from_xml(elem: &Element) -> Result<Self, ParseError> {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self::try_from_codes(
             &elem.get_child("BasePdct")?.text,
             text_or_none(elem.find_child("SubPdct")),

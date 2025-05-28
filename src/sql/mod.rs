@@ -1,4 +1,8 @@
+//! Code for serialising FIRDS data to and from an SQL database.
+
 mod from_row;
+mod error;
+mod to_db;
 
 use sqlx::{Executor, SqlitePool};
 

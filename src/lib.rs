@@ -1,8 +1,9 @@
-//! Types for representing data in the [Financial Instrument Reference Data System](https://data.europa.eu/data/datasets/financial-instruments-reference-data-system)
+//! `firds-rs` is a Rust crate for interacting with the
+//! [Financial Instrument Reference Data System](https://data.europa.eu/data/datasets/financial-instruments-reference-data-system)
 //! (FIRDS).
 //! 
-//! This crate just contains the types themselves. Other crates provide additional functionality for
-//! accessing the data and constructing the crates.
+//! The "core" of the crate, without any features enabled, just contains structs and enums for
+//! representing FIRDS data.
 
 mod model;
 mod enums;

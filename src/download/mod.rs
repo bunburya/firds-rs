@@ -1,3 +1,6 @@
+//! Code for searching the ESMA or FCA FIRDS websites, downloading ZIP files and extracting XML
+//! files.
+
 mod error;
 
 use chrono::{DateTime, FixedOffset, NaiveDate, Utc};

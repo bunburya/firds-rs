@@ -388,6 +388,7 @@ CREATE TABLE IF NOT EXISTS CommodityDerivativeAttributes (
     id INTEGER PRIMARY KEY,
     product CHAR(4) NOT NULL,
     subproduct CHAR(4),
+    -- Note: Products and subproducts are flattened as otherwise it would add a fair bit of complexity to the schema.
     further_subproduct CHAR(4),
     transaction_type CHAR(4),
     final_price_type CHAR(4),

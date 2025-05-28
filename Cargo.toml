@@ -62,5 +62,5 @@ all = [
 
 [[bin]]
 name = "firds-dl"
-path = "src/main.rs"
+path = "src/download/main.rs"
 required-features = ["download-cli"]
