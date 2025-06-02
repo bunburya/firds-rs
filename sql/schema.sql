@@ -213,7 +213,6 @@ INSERT OR IGNORE INTO DebtSeniority (code, label) VALUES
     ('SBOD', 'Subordinated'),
     ('JUND', 'Junior');
 
--- Option type
 CREATE TABLE IF NOT EXISTS OptionType (
     code CHAR(4) PRIMARY KEY,
     label TEXT NOT NULL
@@ -317,7 +316,6 @@ CREATE TABLE IF NOT EXISTS StrikePrice (
     FOREIGN KEY (price_type) REFERENCES StrikePriceType(code)
 );
 
--- Table for FloatingRate
 CREATE TABLE IF NOT EXISTS FloatingRate (
     id INTEGER PRIMARY KEY,
     name TEXT,
@@ -383,7 +381,6 @@ CREATE TABLE IF NOT EXISTS DebtAttributes (
     FOREIGN KEY (seniority) REFERENCES DebtSeniority(code)
 );
 
--- Table for CommodityDerivativeAttributes
 CREATE TABLE IF NOT EXISTS CommodityDerivativeAttributes (
     id INTEGER PRIMARY KEY,
     product CHAR(4) NOT NULL,
@@ -395,29 +392,28 @@ CREATE TABLE IF NOT EXISTS CommodityDerivativeAttributes (
     FOREIGN KEY (transaction_type) REFERENCES TransactionType(code),
     FOREIGN KEY (final_price_type) REFERENCES FinalPriceType(code)
 );
+
 CREATE TABLE IF NOT EXISTS InterestRateDerivativeAttributes (
     id INTEGER PRIMARY KEY,
     reference_rate_id INTEGER NOT NULL,
     interest_rate_1_id INTEGER,
     notional_currency_2 TEXT,
-    interest_rate_2_id,        -- Option<InterestRate>
+    interest_rate_2_id INTEGER,
     FOREIGN KEY (reference_rate_id) REFERENCES FloatingRate(id),
     FOREIGN KEY (interest_rate_1_id) REFERENCES InterestRate(id),
     FOREIGN KEY (interest_rate_2_id) REFERENCES InterestRate(id)
 );
 
--- Table for FxDerivativeAttributes
 CREATE TABLE IF NOT EXISTS FxDerivativeAttributes (
     id INTEGER PRIMARY KEY,
     notional_currency_2 TEXT,
-    fx_type CHAR(4),                      -- Option<FxType>
+    fx_type CHAR(4), 
     FOREIGN KEY (fx_type) REFERENCES FxType(code)
 );
 
--- Table for UnderlyingBasket
 CREATE TABLE IF NOT EXISTS UnderlyingBasket (
     id INTEGER PRIMARY KEY
-    -- Underlying ISINs and issuer_lei stored in separate join tables
+    -- Underlying ISINs and issuer_lei stored in separate tables
 );
 
 CREATE TABLE IF NOT EXISTS UnderlyingBasketIsin (
@@ -432,7 +428,6 @@ CREATE TABLE IF NOT EXISTS UnderlyingBasketIssuerLei (
     FOREIGN KEY (basket_id) REFERENCES UnderlyingBasket(id)
 );
 
--- Table for UnderlyingSingle
 CREATE TABLE IF NOT EXISTS UnderlyingSingle (
     id INTEGER PRIMARY KEY,
     isin CHAR(12),
@@ -448,7 +443,6 @@ CREATE TABLE IF NOT EXISTS UnderlyingSingle (
     )
 );
 
--- Table for DerivativeUnderlying
 CREATE TABLE IF NOT EXISTS DerivativeUnderlying (
     id INTEGER PRIMARY KEY,
     single_id INTEGER,
@@ -462,7 +456,6 @@ CREATE TABLE IF NOT EXISTS DerivativeUnderlying (
     )
 );
 
--- Table for AssetClassSpecificAttributes
 CREATE TABLE IF NOT EXISTS AssetClassSpecificAttributes (
     id INTEGER PRIMARY KEY,
     commodity_attributes_id INTEGER,
@@ -473,7 +466,6 @@ CREATE TABLE IF NOT EXISTS AssetClassSpecificAttributes (
     FOREIGN KEY (fx_attributes_id) REFERENCES FxDerivativeAttributes(id)
 );
 
--- Table for DerivativeAttributes
 CREATE TABLE IF NOT EXISTS DerivativeAttributes (
     id INTEGER PRIMARY KEY,
     expiry_date DATE,
@@ -492,7 +484,6 @@ CREATE TABLE IF NOT EXISTS DerivativeAttributes (
     FOREIGN KEY (asset_class_specific_attributes_id) REFERENCES AssetClassSpecificAttributes(id)
 );
 
--- Table for ReferenceData
 CREATE TABLE IF NOT EXISTS ReferenceData (
     id SERIAL PRIMARY KEY,
     isin CHAR(12) NOT NULL,

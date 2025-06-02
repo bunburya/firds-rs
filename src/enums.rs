@@ -1,11 +1,12 @@
 //! Some enum types that are used as building blocks in the main [`ReferenceData`] structs.
 
+use std::fmt::Display;
 use std::str::FromStr;
 use strum_macros::{EnumString, Display};
 use crate::error::ParseError;
 
 /// Represents the unit of time in which the term is expressed (days, weeks, months, or years).
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum TermUnit {
     #[strum(serialize = "DAYS")]
     Days,
@@ -18,7 +19,7 @@ pub enum TermUnit {
 }
 
 /// A four-letter code representing an index or benchmark.
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum IndexCode {
     #[strum(serialize = "EONA")]
     Eonia,
@@ -73,7 +74,7 @@ pub enum IndexCode {
 }
 
 /// The name of an index or benchmark.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IndexName {
     /// A four-letter code representing the index or benchmark.
     Code(IndexCode),
@@ -92,8 +93,17 @@ impl FromStr for IndexName {
     }
 }
 
+impl Display for IndexName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            IndexName::Code(code) => write!(f, "{code}"),
+            IndexName::Text(text) => write!(f, "{text}"),
+        }
+    }
+}
+
 /// Represents the seniority of a debt instrument.
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum DebtSeniority {
     #[strum(serialize = "SNDB")]
     Senior,
@@ -106,7 +116,7 @@ pub enum DebtSeniority {
 }
 
 /// Represents the type of an option (put, call, or other).
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum OptionType {
     #[strum(serialize = "PUTO")]
     Put,
@@ -117,7 +127,7 @@ pub enum OptionType {
 }
 
 /// Represents the exercise style of an option (European, American, etc.).
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum OptionExerciseStyle {
     #[strum(serialize = "EURO")]
     European,
@@ -132,7 +142,7 @@ pub enum OptionExerciseStyle {
 }
 
 /// Represents the delivery type of a financial instrument (physical, cash, etc.).
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum DeliveryType {
     #[strum(serialize = "PHYS")]
     Physical,
@@ -143,7 +153,7 @@ pub enum DeliveryType {
 }
 
 /// Represents the type of transaction.
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum TransactionType {
     #[strum(serialize = "FUTR")]
     Futures,
@@ -168,7 +178,7 @@ pub enum TransactionType {
 }
 
 /// Represents the final price type of a derivative.
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum FinalPriceType {
     #[strum(serialize = "ARGM")]
     ArgusMcCloskey,
@@ -187,7 +197,7 @@ pub enum FinalPriceType {
 }
 
 /// Represents the type of FX.
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum FxType {
     #[strum(serialize = "FXCR")]
     CrossRates,
@@ -198,7 +208,7 @@ pub enum FxType {
 }
 
 /// Represents the type of strike price.
-#[derive(Debug, EnumString, Display)]
+#[derive(Debug, EnumString, Display, Copy, Clone)]
 pub enum StrikePriceType {
     #[strum(serialize = "MONETARY_VALUE")]
     MonetaryValue,

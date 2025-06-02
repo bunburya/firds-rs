@@ -36,8 +36,21 @@ where ProductError: From<<T as FromStr>::Err> {
 }
 
 trait SubProduct {
+    /// Try to create a variant of this enum based on the 4-character codes for the sub-product and,
+    /// if applicable, the further sub-product.
     fn try_from_codes(sub_prod: &str, further_sub_prod: Option<&str>) 
         -> Result<Self, ProductError> where Self: Sized;
+
+    /// Return a tuple containing the 4-character code for the sub-product and, if applicable, its
+    /// further sub-product.
+    fn to_codes(&self) -> (String, Option<String>);
+
+    /// Convenience function to return the output of [`Self::to_codes`] but with the first element
+    /// wrapped in a [`Some`].
+    fn to_code_options(&self) -> (Option<String>, Option<String>) {
+        let (sp, fsp) = self.to_codes();
+        (Some(sp), fsp)
+    }
 }
 
 /// Classification of commodity and emission allowances derivatives.
@@ -124,7 +137,26 @@ impl BaseProduct {
             }
         }
     }
+
+    pub fn to_codes(&self) -> (String, Option<String>, Option<String>) {
+        let (sp, fsp) = match self {
+            Self::Agricultural(sp) => sp.to_code_options(),
+            Self::Energy(sp) => sp.to_code_options(),
+            Self::Environmental(sp) => sp.to_code_options(),
+            Self::Freight(sp) => sp.to_code_options(),
+            Self::Fertilizer(sp) => sp.to_code_options(),
+            Self::IndustrialProducts(sp) => sp.to_code_options(),
+            Self::Metals(sp) => sp.to_code_options(),
+            Self::Paper(sp) => sp.to_code_options(),
+            Self::Polypropylene(sp) => sp.to_code_options(),
+            Self::OtherC10(sp) => sp.to_code_options(),
+            _ => (None, None)
+        };
+        (self.to_string(), sp, fsp)
+    }
 }
+
+
 
 /// Sub-classification of products.
 #[derive(Debug, Display)]
@@ -161,6 +193,17 @@ impl SubProduct for AgriculturalSubProduct {
             "GRIN" => Ok(Self::Grain(optional_fsp(further_sub_product)?)),
             _ => Err(ProductError::BadSubProduct)
         }
+    }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        let further_code = match self {
+            Self::GrainsAndOilSeeds(fsp) => Some(fsp.to_string()),
+            Self::Softs(fsp) => Some(fsp.to_string()),
+            Self::OliveOil(fsp) => if let Some(c) = fsp { Some(c.to_string()) } else { None },
+            Self::Grain(fsp) => if let Some(c) = fsp { Some(c.to_string()) } else { None },
+            _ => None
+        };
+        (self.to_string(), further_code)
     }
 }
 
@@ -204,6 +247,18 @@ impl SubProduct for EnergySubProduct {
             _ => Err(ProductError::BadSubProduct)
         }
     }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (
+            self.to_string(),
+            match self {
+                Self::Electricity(fsp) => Some(fsp.to_string()),
+                Self::NaturalGas(fsp) => if let Some(c) = fsp { Some(c.to_string()) } else { None },
+                Self::Oil(fsp) => if let Some(c) = fsp { Some(c.to_string()) } else { None },
+                _ => None
+            }
+        )
+    }
 }
 
 #[derive(Debug, Display)]
@@ -228,6 +283,17 @@ impl SubProduct for EnvironmentalSubProduct {
             _ => Err(ProductError::BadSubProduct)
         }
     }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (
+            self.to_string(),
+            match self {
+                Self::Emissions(fsp) =>
+                    if let Some(fsp) = fsp { Some(fsp.to_string()) } else { None },
+                _ => None
+            }
+        )
+    }
 }
 
 #[derive(Debug, Display)]
@@ -248,6 +314,17 @@ impl SubProduct for FreightSubProduct {
             "CSHP" => without_fsp_or_err(Self::ContainerShips, further_sub_product),
             _ => Err(ProductError::BadSubProduct)
         }
+    }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (
+            self.to_string(),
+            match self {
+                Self::Wet(fsp) => if let Some(fsp) = fsp { Some(fsp.to_string()) } else { None },
+                Self::Dry(fsp) => if let Some(fsp) = fsp { Some(fsp.to_string()) } else { None },
+                _ => None
+            }
+        )
     }
 }
 
@@ -282,6 +359,10 @@ impl SubProduct for FertilizerSubProduct {
             _ => Err(ProductError::BadSubProduct)
         }
     }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (self.to_string(), None)
+    }
 }
 
 #[derive(Debug, EnumString, Display)]
@@ -302,6 +383,10 @@ impl SubProduct for IndustrialProductsSubProduct {
             "MFTG" => without_fsp_or_err(Self::Manufacturing, further_sub_product),
             _ => Err(ProductError::BadSubProduct)
         }
+    }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (self.to_string(), None)
     }
 }
 
@@ -328,6 +413,16 @@ impl SubProduct for MetalsSubProduct {
             _ => Err(ProductError::BadSubProduct)
         }
     }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (
+            self.to_string(),
+            match self {
+                MetalsSubProduct::NonPrecious(fsp) => Some(fsp.to_string()),
+                MetalsSubProduct::Precious(fsp) => Some(fsp.to_string()),
+            }
+        )
+    }
 }
 
 #[derive(Debug, Display)]
@@ -351,6 +446,10 @@ impl SubProduct for PaperSubProduct {
             _ => Err(ProductError::BadSubProduct)
         }
     }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (self.to_string(), None)
+    }
 }
 
 #[derive(Debug, Display)]
@@ -367,6 +466,10 @@ impl SubProduct for PolypropyleneSubProduct {
             "PLST" => without_fsp_or_err(Self::Plastic, further_sub_product),
             _ => Err(ProductError::BadSubProduct)
         }
+    }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (self.to_string(), None)
     }
 }
 
@@ -388,6 +491,10 @@ impl SubProduct for OtherC10SubProduct {
             "NDLV" => without_fsp_or_err(Self::NonDeliverable, further_sub_product),
             _ => Err(ProductError::BadSubProduct)
         }
+    }
+
+    fn to_codes(&self) -> (String, Option<String>) {
+        (self.to_string(), None)
     }
 }
 

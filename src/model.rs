@@ -3,7 +3,7 @@ use crate::product_enums::BaseProduct;
 use chrono::{DateTime, NaiveDate, Utc};
 
 /// The term of an index or benchmark.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct Term {
     /// The number of weeks, months, etc (as determined by `unit`).
     pub number: i32,
