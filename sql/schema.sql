@@ -484,7 +484,7 @@ CREATE TABLE IF NOT EXISTS DerivativeAttributes (
 );
 
 CREATE TABLE IF NOT EXISTS ReferenceData (
-    id SERIAL PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
     isin CHAR(12) NOT NULL,
     full_name TEXT NOT NULL,
     cfi CHAR(6) NOT NULL,
@@ -496,27 +496,12 @@ CREATE TABLE IF NOT EXISTS ReferenceData (
     technical_attributes_id INTEGER,
     debt_attributes_id INTEGER,
     derivative_attributes_id INTEGER,
+    -- Below fields are not present in FIRDS data but are necessary for tracking modifications.
+    latest_record BOOLEAN NOT NULL,
+    valid_from DATE NOT NULL,
+    valid_to DATE,
     FOREIGN KEY (trading_venue_attrs_id) REFERENCES TradingVenueAttributes(id),
     FOREIGN KEY (technical_attributes_id) REFERENCES TechnicalAttributes(id),
     FOREIGN KEY (debt_attributes_id) REFERENCES DebtAttributes(id),
     FOREIGN KEY (derivative_attributes_id) REFERENCES DerivativeAttributes(id)
-);
-
--- Tables for NewRecord, ModifiedRecord, TerminatedRecord (all just wrappers around ReferenceData)
-CREATE TABLE IF NOT EXISTS NewRecord (
-    id INTEGER PRIMARY KEY,
-    reference_data_id INTEGER NOT NULL,
-    FOREIGN KEY (reference_data_id) REFERENCES ReferenceData(id)
-);
-
-CREATE TABLE IF NOT EXISTS ModifiedRecord (
-    id INTEGER PRIMARY KEY,
-    reference_data_id INTEGER NOT NULL,
-    FOREIGN KEY (reference_data_id) REFERENCES ReferenceData(id)
-);
-
-CREATE TABLE IF NOT EXISTS TerminatedRecord (
-    id INTEGER PRIMARY KEY,
-    reference_data_id INTEGER NOT NULL,
-    FOREIGN KEY (reference_data_id) REFERENCES ReferenceData(id)
 );

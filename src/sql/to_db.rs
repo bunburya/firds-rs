@@ -1,6 +1,36 @@
+use chrono::NaiveDate;
 use crate::sql::error::SqlError;
 use crate::*;
 use sqlx::{Executor, SqliteTransaction};
+
+/// A wrapper around a [`ReferenceData`] object which contains some additional data necessary for
+/// storing modifications to the data.
+pub struct RefDataDbEntry {
+    /// The reference data itself.
+    pub ref_data: ReferenceData,
+    /// Whether this entry represents the latest record of the relevant instrument.
+    pub latest_record: bool,
+    /// The date from which this entry is valid.
+    pub valid_from: NaiveDate,
+    /// The date, if any, to which this entry was valid.
+    pub valid_to: Option<NaiveDate>,
+}
+
+impl RefDataDbEntry {
+    pub fn new(
+        ref_data: ReferenceData,
+        latest_record: bool,
+        valid_from: NaiveDate,
+        valid_to: Option<NaiveDate>
+    ) -> Self {
+        Self {
+            ref_data,
+            latest_record,
+            valid_from,
+            valid_to
+        }
+    }
+}
 
 /// Structs implementing this trait can be serialised to a database.
 pub trait ToDb where Self: Sized {
@@ -26,9 +56,13 @@ impl<T: ToDb> ToDbOption for Option<T> {
 impl ToDb for Term {
 
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query("INSERT INTO Term (number, unit) VALUES ($1, $2)")
-            .bind(&self.number)
-            .bind(&self.unit.to_string())
+        let unit_str = self.unit.to_string();
+        let query = sqlx::query!(
+            "INSERT INTO Term (number, unit) VALUES (?, ?)",
+            self.number,
+            unit_str
+        );
+        Ok(query
             // https://stackoverflow.com/questions/64654769/how-to-build-and-commit-multi-query-transaction-in-sqlx
             .execute(&mut **tx)
             .await?
@@ -38,11 +72,15 @@ impl ToDb for Term {
 
 impl ToDb for StrikePrice {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query("INSERT INTO StrikePrice (price_type, price, pending, currency) VALUES ($1, $2, $3, $4)")
-            .bind(&self.price_type.to_string())
-            .bind(&self.price)
-            .bind(&self.pending)
-            .bind(&self.currency)
+        let price_type_str = self.price_type.to_string();
+        let query = sqlx::query!(
+            "INSERT INTO StrikePrice (price_type, price, pending, currency) VALUES (?, ?, ?, ?)",
+            price_type_str,
+            self.price,
+            self.pending,
+            self.currency
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -51,19 +89,18 @@ impl ToDb for StrikePrice {
 
 impl ToDb for FloatingRate {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        let name = if let Some(name) = &self.name {
-            Some(name.to_string())
-        } else {
-            None
-        };
+        let name = self.name.as_ref().map(|n| n.to_string());
         let term_id = if let Some(term) = &self.term {
             Some(term.to_db(tx).await?)
         } else {
             None
         };
-        Ok(sqlx::query("INSERT INTO FloatingRate (name, term_id) VALUES ($1, $2)")
-            .bind(name)
-            .bind(term_id)
+        let query = sqlx::query!(
+            "INSERT INTO FloatingRate (name, term_id) VALUES (?, ?)",
+            name,
+            term_id
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -72,9 +109,13 @@ impl ToDb for FloatingRate {
 
 impl ToDb for Index {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query("INSERT INTO FirdsIndex (isin, name_id) VALUES ($1, $2)")
-            .bind(&self.isin)
-            .bind(&self.name.to_db(tx).await?)
+        let name = self.name.to_db(tx).await?;
+        let query = sqlx::query!(
+            "INSERT INTO FirdsIndex (isin, name_id) VALUES (?, ?)",
+            self.isin,
+            name
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -83,14 +124,29 @@ impl ToDb for Index {
 
 impl ToDb for TradingVenueAttributes {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query(
-            "INSERT INTO TradingVenueAttributes(trading_venue, requested_admission, approval_date, request_date, admission_or_first_trade_date, termination_date) VALUES ($1, $2, $3, $4, $5, $6)")
-            .bind(&self.trading_venue)
-            .bind(&self.requested_admission)
-            .bind(&self.approval_date.map(|d| d.to_string()))
-            .bind(&self.request_date.map(|d| d.to_string()))
-            .bind(&self.admission_or_first_trade_date.map(|d| d.to_string()))
-            .bind(self.termination_date.map(|d| d.to_string()))
+        let appr_date_str = self.approval_date.map(|d| d.to_string());
+        let req_date_str = self.request_date.map(|d| d.to_string());
+        let aoft_date_str = self.admission_or_first_trade_date.map(|d| d.to_string());
+        let term_date_str = self.termination_date.map(|d| d.to_string());
+        let query = sqlx::query!(
+            r#"
+                INSERT INTO TradingVenueAttributes (
+                    trading_venue, 
+                    requested_admission, 
+                    approval_date, 
+                    request_date, 
+                    admission_or_first_trade_date, 
+                    termination_date
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            "#,
+            self.trading_venue,
+            self.requested_admission,
+            appr_date_str,
+            req_date_str,
+            aoft_date_str,
+            term_date_str
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -104,10 +160,13 @@ impl ToDb for InterestRate {
             InterestRate::Floating(rate, spread) =>
                 (None, Some(rate.to_db(tx).await?), *spread),
         };
-        Ok(sqlx::query("INSERT INTO InterestRate (fixed, floating_rate_id, spread) VALUES ($1, $2, $3)")
-            .bind(fixed)
-            .bind(floating)
-            .bind(spread)
+        let query = sqlx::query!(
+            "INSERT INTO InterestRate (fixed, floating_rate_id, spread) VALUES (?, ?, ?)",
+            fixed,
+            floating,
+            spread
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -116,9 +175,14 @@ impl ToDb for InterestRate {
 
 impl ToDb for PublicationPeriod {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query("INSERT INTO PublicationPeriod (from_date, to_date) VALUES ($1, $2)")
-            .bind(&self.from_date.to_string())
-            .bind(&self.to_date.map(|d| d.to_string()))
+        let from_date_str = &self.from_date.to_string();
+        let to_date_str = &self.to_date.map(|d| d.to_string());
+        let query = sqlx::query!(
+            "INSERT INTO PublicationPeriod (from_date, to_date) VALUES (?, ?)",
+            from_date_str,
+            to_date_str
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -132,10 +196,19 @@ impl ToDb for TechnicalAttributes {
         } else {
             None
         };
-        Ok(sqlx::query("INSERT INTO TechnicalAttributes (relevant_competent_authority, publication_period_id, relevant_trading_venue) VALUES ($1, $2, $3)")
-            .bind(&self.relevant_competent_authority)
-            .bind(&publication_period_id)
-            .bind(&self.relevant_trading_venue)
+        let query = sqlx::query!(
+            r#"
+                INSERT INTO TechnicalAttributes (
+                    relevant_competent_authority, 
+                    publication_period_id, 
+                    relevant_trading_venue
+                ) VALUES (?, ?, ?)
+            "#,
+            self.relevant_competent_authority,
+            publication_period_id,
+            self.relevant_trading_venue
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -144,13 +217,28 @@ impl ToDb for TechnicalAttributes {
 
 impl ToDb for DebtAttributes {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query("INSERT INTO DebtAttributes (total_issued_amount, maturity_date, nominal_currency, nominal_value_per_unit, interest_rate_id, seniority) VALUES ($1, $2, $3, $4, $5, $6)")
-            .bind(&self.total_issued_amount)
-            .bind(&self.maturity_date.map(|d| d.to_string()))
-            .bind(&self.nominal_currency)
-            .bind(&self.nominal_value_per_unit)
-            .bind(&self.interest_rate.to_db(tx).await?)
-            .bind(&self.seniority.map(|d| d.to_string()))
+        let mat_date_str = self.maturity_date.map(|d| d.to_string());
+        let ir = self.interest_rate.to_db(tx).await?;
+        let seniority_str = self.seniority.map(|d| d.to_string());
+        let query = sqlx::query!(
+            r#"
+                INSERT INTO DebtAttributes (
+                    total_issued_amount, 
+                    maturity_date, 
+                    nominal_currency, 
+                    nominal_value_per_unit, 
+                    interest_rate_id, 
+                    seniority
+                ) VALUES (?, ?, ?, ?, ?, ?)            
+            "#,
+            self.total_issued_amount,
+            mat_date_str,
+            self.nominal_currency,
+            self.nominal_value_per_unit,
+            ir,
+            seniority_str
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -160,12 +248,25 @@ impl ToDb for DebtAttributes {
 impl ToDb for CommodityDerivativeAttributes {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
         let (product, subproduct, further_subproduct) = self.product.to_codes();
-        Ok(sqlx::query("INSERT INTO CommodityDerivativeAttributes (product, subproduct, further_subproduct, transaction_type, final_price_type) VALUES ($1, $2, $3, $4, $5)")
-            .bind(&product)
-            .bind(&subproduct)
-            .bind(&further_subproduct)
-            .bind(&self.transaction_type.map(|t| t.to_string()))
-            .bind(&self.final_price_type.map(|t| t.to_string()))
+        let trans_type_str = self.transaction_type.map(|t| t.to_string());
+        let final_price_type_str = self.final_price_type.map(|t| t.to_string());
+        let query = sqlx::query!(
+            r#"
+                INSERT INTO CommodityDerivativeAttributes (
+                   product, 
+                   subproduct, 
+                   further_subproduct, 
+                   transaction_type, 
+                   final_price_type
+                ) VALUES (?, ?, ?, ?, ?)
+            "#,
+            product,
+            subproduct,
+            further_subproduct,
+            trans_type_str,
+            final_price_type_str
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -174,6 +275,7 @@ impl ToDb for CommodityDerivativeAttributes {
 
 impl ToDb for InterestRateDerivativeAttributes {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
+        let ref_rate = self.reference_rate.to_db(tx).await?;
         let interest_rate_1_id = if let Some(ir) = &self.interest_rate_1 {
             Some(ir.to_db(tx).await?)
         } else {
@@ -184,11 +286,21 @@ impl ToDb for InterestRateDerivativeAttributes {
         } else {
             None
         };
-        Ok(sqlx::query("INSERT INTO InterestRateDerivativeAttributes (reference_rate_id, interest_rate_1_id, notional_currency_2, interest_rate_2_id) VALUES ($1, $2, $3, $4)")
-            .bind(&self.reference_rate.to_db(tx).await?)
-            .bind(&interest_rate_1_id)
-            .bind(&self.notional_currency_2)
-            .bind(&interest_rate_2_id)
+        let query = sqlx::query!(
+            r#"
+                INSERT INTO InterestRateDerivativeAttributes (
+                  reference_rate_id, 
+                  interest_rate_1_id, 
+                  notional_currency_2, 
+                  interest_rate_2_id
+                ) VALUES (?, ?, ?, ?)
+            "#,
+            ref_rate,
+            interest_rate_1_id,
+            self.notional_currency_2,
+            interest_rate_2_id
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -197,9 +309,13 @@ impl ToDb for InterestRateDerivativeAttributes {
 
 impl ToDb for FxDerivativeAttributes {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query("INSERT INTO FxDerivativeAttributes (notional_currency_2, fx_type) VALUES ($1, $2)")
-            .bind(&self.notional_currency_2)
-            .bind(&self.fx_type.map(|t| t.to_string()))
+        let fx_type = self.fx_type.map(|t| t.to_string());
+        let query = sqlx::query!(
+            "INSERT INTO FxDerivativeAttributes (notional_currency_2, fx_type) VALUES (?, ?)",
+            self.notional_currency_2,
+            fx_type
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -213,10 +329,13 @@ impl ToDb for UnderlyingSingle {
             UnderlyingSingle::Index(index) => (None, Some(index.to_db(tx).await?), None),
             UnderlyingSingle::Lei(lei) => (None, None, Some(lei)),
         };
-        Ok(sqlx::query("INSERT INTO UnderlyingSingle (isin, index_id, lei) VALUES ($1, $2, $3)")
-            .bind(isin)
-            .bind(index_id)
-            .bind(lei)
+        let query = sqlx::query!(
+            "INSERT INTO UnderlyingSingle (isin, index_id, lei) VALUES (?, ?, ?)",
+            isin,
+            index_id,
+            lei
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -226,23 +345,23 @@ impl ToDb for UnderlyingSingle {
 impl ToDb for UnderlyingBasket {
 
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        let basket_id = sqlx::query("INSERT INTO UnderlyingBasket DEFAULT VALUES")
+        let basket_id = sqlx::query!("INSERT INTO UnderlyingBasket DEFAULT VALUES")
             .execute(&mut **tx)
             .await?
             .last_insert_rowid();
         for isin in &self.isin {
-            sqlx::query("INSERT INTO UnderlyingBasketIsin VALUES ($1, $2)")
-                .bind(basket_id)
-                .bind(isin)
-                .execute(&mut **tx)
-                .await?;
+            sqlx::query!(
+                "INSERT INTO UnderlyingBasketIsin VALUES (?, ?)",
+                basket_id,
+                isin
+            ).execute(&mut **tx).await?;
         }
         for lei in &self.issuer_lei {
-            sqlx::query("INSERT INTO UnderlyingBasketIssuerLei VALUES ($1, $2)")
-                .bind(basket_id)
-                .bind(lei)
-                .execute(&mut **tx)
-                .await?;
+            sqlx::query!(
+                "INSERT INTO UnderlyingBasketIssuerLei VALUES (?, ?)",
+                basket_id,
+                lei
+            ).execute(&mut **tx).await?;
         }
         Ok(basket_id)
     }
@@ -254,9 +373,12 @@ impl ToDb for DerivativeUnderlying {
             DerivativeUnderlying::Single(s) => (Some(s.to_db(tx).await?), None),
             DerivativeUnderlying::Basket(b) => (None, Some(b.to_db(tx).await?)),
         };
-        Ok(sqlx::query("INSERT INTO DerivativeUnderlying (single_id, basket_id) VALUES ($1, $2)")
-            .bind(single_id)
-            .bind(basket_id)
+        let query = sqlx::query!(
+            "INSERT INTO DerivativeUnderlying (single_id, basket_id) VALUES (?, ?)",
+            single_id,
+            basket_id
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -265,10 +387,22 @@ impl ToDb for DerivativeUnderlying {
 
 impl ToDb for AssetClassSpecificAttributes {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query("INSERT INTO AssetClassSpecificAttributes (commodity_attributes_id, ir_attributes_id, fx_attributes_id) VALUES ($1, $2, $3)")
-            .bind(&self.commodity_attributes.to_db_option(tx).await?)
-            .bind(&self.ir_attributes.to_db_option(tx).await?)
-            .bind(&self.fx_attributes.to_db_option(tx).await?)
+        let comm_attrs = self.commodity_attributes.to_db_option(tx).await?;
+        let ir_attrs = self.ir_attributes.to_db_option(tx).await?;
+        let fx_attrs = self.fx_attributes.to_db_option(tx).await?;
+        let query = sqlx::query!(
+            r#"
+                INSERT INTO AssetClassSpecificAttributes (
+                  commodity_attributes_id,
+                  ir_attributes_id,
+                  fx_attributes_id
+                ) VALUES (?, ?, ?)
+            "#,
+            comm_attrs,
+            ir_attrs,
+            fx_attrs
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -277,36 +411,85 @@ impl ToDb for AssetClassSpecificAttributes {
 
 impl ToDb for DerivativeAttributes {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query(
-            "INSERT INTO DerivativeAttributes (expiry_date, price_multiplier, underlying_id, option_type, strike_price_id, option_exercise_style, delivery_type, asset_class_specific_attributes_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)")
-            .bind(self.expiry_date.map(|d| d.to_string()))
-            .bind(self.price_multiplier)
-            .bind(self.underlying.to_db_option(tx).await?)
-            .bind(self.option_type.map(|t| t.to_string()))
-            .bind(self.strike_price.to_db_option(tx).await?)
-            .bind(self.option_exercise_style.map(|s| s.to_string()))
-            .bind(self.delivery_type.map(|t| t.to_string()))
-            .bind(self.asset_class_specific_attributes.to_db_option(tx).await?)
+        let expiry_date_str = self.expiry_date.map(|d| d.to_string());
+        let underlying = self.underlying.to_db_option(tx).await?;
+        let option_type_str = self.option_type.map(|t| t.to_string());
+        let strike_price = self.strike_price.to_db_option(tx).await?;
+        let opt_ex_type_str = self.option_exercise_style.map(|s| s.to_string());
+        let delivery_type_str = self.delivery_type.map(|t| t.to_string());
+        let acsa = self.asset_class_specific_attributes.to_db_option(tx).await?;
+        let query = sqlx::query!(
+            r#"
+                INSERT INTO DerivativeAttributes (
+                  expiry_date,
+                  price_multiplier,
+                  underlying_id, 
+                  option_type, 
+                  strike_price_id, 
+                  option_exercise_style, 
+                  delivery_type, 
+                  asset_class_specific_attributes_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+            expiry_date_str,
+            self.price_multiplier,
+            underlying,
+            option_type_str,
+            strike_price,
+            opt_ex_type_str,
+            delivery_type_str,
+            acsa
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
     }
 }
 
-impl ToDb for ReferenceData {
+impl ToDb for RefDataDbEntry {
     async fn to_db(&self, tx: &mut SqliteTransaction<'_>) -> Result<i64, SqlError> {
-        Ok(sqlx::query("INSERT INTO ReferenceData (isin, full_name, cfi, is_commodities_derivative, issuer_lei, fisn, trading_venue_attrs_id, notional_currency, technical_attributes_id, debt_attributes_id, derivative_attributes_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)")
-            .bind(&self.isin)
-            .bind(&self.full_name)
-            .bind(&self.cfi)
-            .bind(&self.is_commodities_derivative)
-            .bind(&self.issuer_lei)
-            .bind(&self.fisn)
-            .bind(&self.trading_venue_attrs.to_db(tx).await?)
-            .bind(&self.notional_currency)
-            .bind(&self.technical_attributes.to_db_option(tx).await?)
-            .bind(&self.debt_attributes.to_db_option(tx).await?)
-            .bind(&self.derivative_attributes.to_db_option(tx).await?)
+        let tv_attrs = self.ref_data.trading_venue_attrs.to_db(tx).await?;
+        let tech_attrs = self.ref_data.technical_attributes.to_db_option(tx).await?;
+        let debt_attrs = self.ref_data.debt_attributes.to_db_option(tx).await?;
+        let deriv_attrs = self.ref_data.derivative_attributes.to_db_option(tx).await?;
+        let valid_from_str = self.valid_from.to_string();
+        let valid_to_str = self.valid_to.map(|d| d.to_string());
+        let query = sqlx::query!(
+            r#"
+                INSERT INTO ReferenceData (
+                   isin,
+                   full_name,
+                   cfi,
+                   is_commodities_derivative,
+                   issuer_lei,
+                   fisn,
+                   trading_venue_attrs_id,
+                   notional_currency,
+                   technical_attributes_id,
+                   debt_attributes_id,
+                   derivative_attributes_id,
+                   latest_record,
+                   valid_from,
+                   valid_to
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "#,
+            self.ref_data.isin,
+            self.ref_data.full_name,
+            self.ref_data.cfi,
+            self.ref_data.is_commodities_derivative,
+            self.ref_data.issuer_lei,
+            self.ref_data.fisn,
+            tv_attrs,
+            self.ref_data.notional_currency,
+            tech_attrs,
+            debt_attrs,
+            deriv_attrs,
+            self.latest_record,
+            valid_from_str,
+            valid_to_str,
+        );
+        Ok(query
             .execute(&mut **tx)
             .await?
             .last_insert_rowid())
@@ -315,9 +498,9 @@ impl ToDb for ReferenceData {
 
 #[cfg(all(test, feature = "xml", feature = "sql"))]
 mod tests {
-    use crate::sql::to_db::ToDb;
+    use crate::sql::to_db::{RefDataDbEntry, ToDb};
     use crate::xml::IterRefData;
-    use chrono::NaiveDate;
+    use chrono::{NaiveDate, Utc};
     use sqlx::Connection;
     use std::env::current_dir;
     use std::fs::read_dir;
@@ -345,7 +528,7 @@ mod tests {
             .filter_map(|e| {
                 let entry = e.as_ref().expect("Could not access file metadata");
                 if entry.path().is_file() && entry.file_name().to_str().is_some_and(|s|
-                    s.contains(&file_type) && s.contains(&date_str)
+                    s.contains(file_type) && s.contains(&date_str)
                 ) {
                     return Some(entry.path())
                 }
@@ -357,7 +540,7 @@ mod tests {
     #[tokio::test]
     async fn test_fulins_to_db() {
         let fulins_files = get_file_paths("FULINS", FULINS_DATE);
-        let db_fpath = get_test_output_dir().join("test.db");
+        let db_fpath = get_test_output_dir().join("test_esma.db");
         assert!(db_fpath.is_file());
         let mut conn = sqlx::SqliteConnection::connect(db_fpath.to_str().unwrap())
             .await.expect("Could not connect to database");
@@ -365,7 +548,13 @@ mod tests {
             let mut tx = conn.begin().await.expect("Could not begin transaction");
             for r in IterRefData::new(&f).expect("Failed to create iterator") {
                 let ref_data = r.expect("Could not read reference data");
-                ref_data.to_db(&mut tx).await.expect("Could not serialise to DB.");
+                let ref_data_entry = RefDataDbEntry::new(
+                    ref_data, 
+                    true,
+                    Utc::now().date_naive(),
+                    None
+                );
+                ref_data_entry.to_db(&mut tx).await.expect("Could not serialise to DB.");
             }
             tx.commit().await.expect("Could not commit transaction");
         }
