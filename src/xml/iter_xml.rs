@@ -1,10 +1,11 @@
-use std::collections::HashMap;
-use std::io::BufRead;
+use crate::xml::error::XmlError;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::ResolveResult;
 use quick_xml::NsReader;
-use crate::xml::error::XmlError;
+use std::collections::HashMap;
+use std::io::BufRead;
 
+/// A struct describing an XML element.
 #[derive(Debug, Default)]
 pub(crate) struct Element {
     pub(crate) local_name: String,
@@ -15,13 +16,12 @@ pub(crate) struct Element {
 }
 
 impl Element {
-
     /// Search for the first immediate child [`Element`] with the given tag name, or return `None`
     /// if no such child is present.
     pub(crate) fn find_child(&self, tag_name: &str) -> Option<&Element> {
         for child in &self.children {
             if child.local_name == tag_name {
-                return Some(child)
+                return Some(child);
             }
         }
         None
@@ -41,7 +41,7 @@ impl Element {
         } else {
             for child in &self.children {
                 if let Some(c) = child.find_descendant(tag_name, left_only) {
-                    return Some(c)
+                    return Some(c);
                 }
             }
             None
@@ -94,25 +94,20 @@ impl<'a, R: BufRead> XmlIterator<'a, R> {
         }
     }
 
-    pub fn parse_start(
-        &mut self,
-        start: BytesStart,
-    ) -> Result<Element, XmlError> {
+    pub fn parse_start(&mut self, start: BytesStart) -> Result<Element, XmlError> {
         let mut buf = Vec::new();
         let (resolve_res, local_name) = self.reader.resolve_element(start.name());
         let namespace = match resolve_res {
             ResolveResult::Bound(ns) => Some(String::from_utf8_lossy(ns.into_inner()).to_string()),
             ResolveResult::Unbound => None,
-            ResolveResult::Unknown(_) => None
+            ResolveResult::Unknown(_) => None,
         };
-        let attributes = start.attributes()
+        let attributes = start
+            .attributes()
             .filter_map(|a| a.ok())
             .map(|a| {
                 let key = String::from_utf8_lossy(a.key.as_ref()).to_string();
-                let value = a
-                    .unescape_value()
-                    .unwrap_or_else(|_| "".into())
-                    .to_string();
+                let value = a.unescape_value().unwrap_or_else(|_| "".into()).to_string();
                 (key, value)
             })
             .collect();
@@ -125,7 +120,7 @@ impl<'a, R: BufRead> XmlIterator<'a, R> {
                 Ok(Event::Start(e)) => {
                     let child = self.parse_start(e)?;
                     children.push(child);
-                },
+                }
                 Ok(Event::Text(e)) => {
                     let t = e.unescape().unwrap_or_else(|_| "".into());
                     if let Some(prev) = text {
@@ -133,7 +128,7 @@ impl<'a, R: BufRead> XmlIterator<'a, R> {
                     } else {
                         text = Some(t.into_owned());
                     }
-                },
+                }
                 Ok(Event::End(e)) if e.name() == start.name() => break,
                 Ok(Event::Eof) => break,
                 _ => {}
@@ -162,7 +157,7 @@ impl<'a, R: BufRead> Iterator for XmlIterator<'a, R> {
                     let elem_name = e.name();
                     let tag_name = String::from_utf8_lossy(elem_name.as_ref());
                     if tag_name == self.tag_name {
-                        return Some(self.parse_start(e))
+                        return Some(self.parse_start(e));
                     }
                 }
                 Ok(Event::Eof) => return None,
@@ -172,3 +167,4 @@ impl<'a, R: BufRead> Iterator for XmlIterator<'a, R> {
         }
     }
 }
+

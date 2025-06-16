@@ -1,3 +1,4 @@
+#[derive(Debug)]
 pub enum SqlError {
     /// Received an error from the [`sqlx`] crate.
     Sqlx(sqlx::Error),

@@ -331,7 +331,6 @@ CREATE TABLE IF NOT EXISTS FirdsIndex (
     FOREIGN KEY (name_id) REFERENCES FloatingRate(id)
 );
 
--- Table for TradingVenueAttributes
 CREATE TABLE IF NOT EXISTS TradingVenueAttributes (
     id INTEGER PRIMARY KEY,
     trading_venue CHAR(4) NOT NULL,
@@ -471,7 +470,7 @@ CREATE TABLE IF NOT EXISTS DerivativeAttributes (
     expiry_date DATE,
     price_multiplier DOUBLE PRECISION,
     underlying_id INTEGER,
-    option_type CHAR(4),                -- OptionType
+    option_type CHAR(4),
     strike_price_id INTEGER,
     option_exercise_style CHAR(4),
     delivery_type CHAR(4),

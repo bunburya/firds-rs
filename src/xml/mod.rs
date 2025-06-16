@@ -18,7 +18,7 @@ pub struct IterRefData<'a> {
 }
 
 impl<'a> IterRefData<'a> {
-    fn new(path: &Path) -> Result<Self, XmlError> {
+    pub(crate) fn new(path: &Path) -> Result<Self, XmlError> {
         let file = File::open(path)?;
         let buf_reader = BufReader::new(file);
         Ok(Self {
