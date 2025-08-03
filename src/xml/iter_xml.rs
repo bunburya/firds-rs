@@ -2,8 +2,10 @@ use crate::xml::error::XmlError;
 use quick_xml::events::{BytesStart, Event};
 use quick_xml::name::ResolveResult;
 use quick_xml::NsReader;
-use std::collections::HashMap;
-use std::io::BufRead;
+use std::collections::{HashMap, HashSet};
+use std::fs::File;
+use std::io::{BufRead, BufReader};
+use std::path::Path;
 
 /// A struct describing an XML element.
 #[derive(Debug, Default)]
@@ -19,12 +21,7 @@ impl Element {
     /// Search for the first immediate child [`Element`] with the given tag name, or return `None`
     /// if no such child is present.
     pub(crate) fn find_child(&self, tag_name: &str) -> Option<&Element> {
-        for child in &self.children {
-            if child.local_name == tag_name {
-                return Some(child);
-            }
-        }
-        None
+        self.children.iter().find(|&child| child.local_name == tag_name)
     }
 
     /// Find the first descendant of this element with the given tag name, if any, searching
@@ -82,14 +79,14 @@ impl Element {
 }
 
 pub(crate) struct XmlIterator<'a, R> {
-    tag_name: &'a str,
+    tag_names: HashSet<&'a str>,
     reader: NsReader<R>,
 }
 
 impl<'a, R: BufRead> XmlIterator<'a, R> {
-    pub fn new(tag_name: &'a str, reader: R) -> Self {
+    pub fn new(tag_names: impl IntoIterator<Item = &'a str>, reader: R) -> Self {
         XmlIterator {
-            tag_name,
+            tag_names: HashSet::from_iter(tag_names),
             reader: NsReader::from_reader(reader),
         }
     }
@@ -156,7 +153,7 @@ impl<'a, R: BufRead> Iterator for XmlIterator<'a, R> {
                 Ok(Event::Start(e)) => {
                     let elem_name = e.name();
                     let tag_name = String::from_utf8_lossy(elem_name.as_ref());
-                    if tag_name == self.tag_name {
+                    if self.tag_names.contains(tag_name.as_ref()) {
                         return Some(self.parse_start(e));
                     }
                 }
@@ -168,3 +165,10 @@ impl<'a, R: BufRead> Iterator for XmlIterator<'a, R> {
     }
 }
 
+impl <'a> XmlIterator<'a, BufReader<File>> {
+    pub fn from_file(tag_names: impl IntoIterator<Item = &'a str>, fpath: &Path) -> Result<Self, XmlError> {
+        let file = File::open(fpath)?;
+        let buf_reader = BufReader::new(file);
+        Ok(Self::new(tag_names, buf_reader))
+    }
+}

@@ -281,6 +281,9 @@ pub struct NewRecord(pub ReferenceData);
 /// Modified reference data for a financial instrument.
 pub struct ModifiedRecord(pub ReferenceData);
 
+/// Record that was cancelled on a trading venue.
+pub struct CancelledRecord(pub ReferenceData);
+
 /// Reference data for a financial instrument that has ceased being traded on a trading venue.
 pub struct TerminatedRecord(pub ReferenceData);
 

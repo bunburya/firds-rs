@@ -505,3 +505,8 @@ CREATE TABLE IF NOT EXISTS ReferenceData (
     FOREIGN KEY (debt_attributes_id) REFERENCES DebtAttributes(id),
     FOREIGN KEY (derivative_attributes_id) REFERENCES DerivativeAttributes(id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_refdata_isin ON ReferenceData(isin);
+CREATE INDEX IF NOT EXISTS idx_refdata_tv_id ON ReferenceData(trading_venue_attrs_id);
+CREATE INDEX IF NOT EXISTS idx_refdata_valid_to ON ReferenceData(valid_to);
+CREATE INDEX IF NOT EXISTS idx_tv_mic ON TradingVenueAttributes(trading_venue);

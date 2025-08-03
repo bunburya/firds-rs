@@ -369,6 +369,12 @@ impl FromXml for ModifiedRecord {
     }
 }
 
+impl FromXml for CancelledRecord {
+    fn from_xml(elem: &Element) -> Result<Self, XmlError> {
+        Ok(Self(ReferenceData::from_xml(elem)?))
+    }
+}
+
 impl FromXml for TerminatedRecord {
     fn from_xml(elem: &Element) -> Result<Self, XmlError> {
         Ok(Self(ReferenceData::from_xml(elem)?))
@@ -451,7 +457,7 @@ mod tests {
             println!("{path:?}");
             let file = File::open(path).unwrap();
             let reader = BufReader::new(file);
-            let xml_iter = XmlIterator::new(tag, reader);
+            let xml_iter = XmlIterator::new(vec![tag], reader);
             let mut parsed = 0;
             for elem in xml_iter {
                 assert!(elem.is_ok());

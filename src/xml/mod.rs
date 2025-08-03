@@ -1,11 +1,11 @@
 //! Code for parsing structs from the XML files published by ESMA or the FCA.
 
 use crate::xml::error::XmlError;
-use crate::xml::from_xml::FromXml;
-use crate::xml::iter_xml::XmlIterator;
+pub(crate) use crate::xml::from_xml::FromXml;
+pub(crate) use crate::xml::iter_xml::XmlIterator;
 use crate::ReferenceData;
 use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::io::BufReader;
 use std::path::Path;
 
 mod from_xml;
@@ -19,10 +19,8 @@ pub struct IterRefData<'a> {
 
 impl<'a> IterRefData<'a> {
     pub(crate) fn new(path: &Path) -> Result<Self, XmlError> {
-        let file = File::open(path)?;
-        let buf_reader = BufReader::new(file);
         Ok(Self {
-            xml_iterator: XmlIterator::new("RefData", buf_reader),
+            xml_iterator: XmlIterator::from_file(vec!["RefData"], path)?,
         })
     }
 }

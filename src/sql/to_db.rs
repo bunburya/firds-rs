@@ -1,6 +1,6 @@
-use chrono::NaiveDate;
 use crate::sql::error::SqlError;
 use crate::*;
+use chrono::{Duration, NaiveDate};
 use sqlx::{Executor, SqliteTransaction};
 
 /// A wrapper around a [`ReferenceData`] object which contains some additional data necessary for
@@ -29,6 +29,39 @@ impl RefDataDbEntry {
             valid_from,
             valid_to
         }
+    }
+
+    // Create a new [`RefDataDbEntry`] which represents the latest record of the given data.
+    pub fn new_latest(ref_data: ReferenceData, valid_from: NaiveDate) -> Self {
+        Self {
+            ref_data,
+            latest_record: true,
+            valid_from,
+            valid_to: None
+        }
+    }
+
+    pub async fn mark_prev_record(&self, tx: &mut SqliteTransaction<'_>) -> Result<u64, SqlError> {
+        let prev_valid_to = self.valid_from - Duration::days(1);
+        let prev_valid_to_str = prev_valid_to.to_string();
+        let query = sqlx::query!(
+            r#"
+                UPDATE ReferenceData
+                SET valid_to = ?,
+                    latest_record = false
+                FROM TradingVenueAttributes
+                WHERE ReferenceData.trading_venue_attrs_id = TradingVenueAttributes.id
+                AND ReferenceData.isin = ? AND TradingVenueAttributes.trading_venue = ?
+                AND ReferenceData.valid_to IS NULL
+            "#,
+            prev_valid_to_str,
+            self.ref_data.isin,
+            self.ref_data.trading_venue_attrs.trading_venue
+        );
+        Ok(query
+            .execute(&mut **tx)
+            .await?
+            .rows_affected())
     }
 }
 
@@ -500,23 +533,30 @@ impl ToDb for RefDataDbEntry {
 mod tests {
     use crate::sql::to_db::{RefDataDbEntry, ToDb};
     use crate::xml::IterRefData;
-    use chrono::{NaiveDate, Utc};
+    use crate::xml::{FromXml, XmlIterator};
+    use crate::{CancelledRecord, ModifiedRecord};
+    use chrono::NaiveDate;
     use sqlx::Connection;
     use std::env::current_dir;
     use std::fs::read_dir;
     use std::path::PathBuf;
 
     const FULINS_DATE: NaiveDate = NaiveDate::from_ymd_opt(2025, 2, 1).expect("Bad test date");
+    const DLTINS_DATE: NaiveDate = NaiveDate::from_ymd_opt(2025, 2, 2).expect("Bad test date");
+
+    fn test_data_dir() -> PathBuf {
+        current_dir().unwrap().join("test_data")
+    }
 
     fn firds_data_dir() -> PathBuf {
-        current_dir().unwrap().join("test_data").join("firds_data")
+        test_data_dir().join("firds_data")
     }
     
     fn esma_data_dir() -> PathBuf {
        firds_data_dir().join("esma") 
     }
     
-    fn get_test_output_dir() -> PathBuf {
+    fn test_output_dir() -> PathBuf {
         current_dir().unwrap().join("test_output")
     }
     
@@ -540,7 +580,7 @@ mod tests {
     #[tokio::test]
     async fn test_fulins_to_db() {
         let fulins_files = get_file_paths("FULINS", FULINS_DATE);
-        let db_fpath = get_test_output_dir().join("test_esma.db");
+        let db_fpath = test_output_dir().join("test_esma.db");
         assert!(db_fpath.is_file());
         let mut conn = sqlx::SqliteConnection::connect(db_fpath.to_str().unwrap())
             .await.expect("Could not connect to database");
@@ -548,15 +588,55 @@ mod tests {
             let mut tx = conn.begin().await.expect("Could not begin transaction");
             for r in IterRefData::new(&f).expect("Failed to create iterator") {
                 let ref_data = r.expect("Could not read reference data");
-                let ref_data_entry = RefDataDbEntry::new(
-                    ref_data, 
-                    true,
-                    Utc::now().date_naive(),
-                    None
-                );
-                ref_data_entry.to_db(&mut tx).await.expect("Could not serialise to DB.");
+                let ref_data_entry = RefDataDbEntry::new_latest(ref_data, FULINS_DATE);
+                ref_data_entry.to_db(&mut tx).await.expect("Could not serialise to DB");
             }
             tx.commit().await.expect("Could not commit transaction");
         }
+    }
+
+    #[tokio::test]
+    async fn test_dltins_to_db() {
+        let dltins_files = get_file_paths("DLTINS", DLTINS_DATE);
+        assert!(!dltins_files.is_empty());
+        let db_fpath = firds_data_dir().join("esma_firds_fulins_only.db");
+        assert!(db_fpath.is_file());
+        let mut conn = sqlx::SqliteConnection::connect(db_fpath.to_str().unwrap())
+            .await.expect("Could not connect to database");
+        let mut elem_count = 0;
+        let mut modified_count = 0;
+        for f in dltins_files {
+            assert!(f.is_file());
+            let mut tx = conn.begin().await.expect("Could not begin transaction");
+            for e in XmlIterator::from_file(["ModfdRcrd", "CancRcrd"], &f).expect("Failed to create iterator") {
+                let elem = e.expect("Could not read reference data");
+                elem_count += 1;
+
+                match elem.local_name.as_str() {
+                    "ModfdRcrd" => {
+                        modified_count += 1;
+                        let m = ModifiedRecord::from_xml(&elem).expect("Could not parse modified record");
+                        let r = RefDataDbEntry::new_latest(m.0, DLTINS_DATE);
+                        let aff = r.mark_prev_record(&mut tx).await.expect("Could not update previous record");
+                        if aff != 1 {
+                            println!("{:?}", r.ref_data.isin)
+                        }
+                        assert_eq!(aff, 1);
+                        r.to_db(&mut tx).await.expect("Could not serialise to DB");
+                    },
+                    "CancRcrd" => {
+                        let c = CancelledRecord::from_xml(&elem).expect("Could not parse modified record");
+                        let r = RefDataDbEntry::new_latest(c.0, DLTINS_DATE);
+                        r.mark_prev_record(&mut tx).await.expect("Could not update previous record");
+                        r.to_db(&mut tx).await.expect("Could not serialise to DB");
+                    },
+                    "TermntdRcrd" => (),
+                    other => panic!("Unknown element {other:?}"),
+                }
+            }
+            println!("{modified_count}");
+            tx.commit().await.expect("Could not commit transaction");
+        }
+        assert_ne!(elem_count, 0);
     }
 }
