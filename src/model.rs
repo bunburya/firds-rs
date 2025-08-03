@@ -84,6 +84,13 @@ pub struct PublicationPeriod {
     /// The date from which details on the financial instrument were published.
     pub from_date: NaiveDate,
     /// The date to which details on the financial instrument were published.
+    ///
+    /// **NOTE:** It's not entirely clear what this field (`TechAttrbts/PblctnPrd/FrDtToDt/ToDt`) is
+    /// for. It doesn't seem to appear in the FULINS files in practice. The ESMA instructions
+    /// suggest maintaining a separate field for when a record ceased to be *valid* (ie, current),
+    /// so this field presumably relates to something else. If it indeed relates to when the record
+    /// stopped being *published*, then it's difficult to see how it could ever be populated as we
+    /// can only populate it from published records.
     pub to_date: Option<NaiveDate>,
 }
 
@@ -281,10 +288,11 @@ pub struct NewRecord(pub ReferenceData);
 /// Modified reference data for a financial instrument.
 pub struct ModifiedRecord(pub ReferenceData);
 
-/// Record that was cancelled on a trading venue.
-pub struct CancelledRecord(pub ReferenceData);
-
 /// Reference data for a financial instrument that has ceased being traded on a trading venue.
 pub struct TerminatedRecord(pub ReferenceData);
 
-
+/// Record that was cancelled on a trading venue.
+pub struct CancelledRecord {
+    pub(crate) isin: String,
+    pub(crate) trading_venue: String,
+}

@@ -32,18 +32,56 @@ impl RefDataDbEntry {
     }
 
     // Create a new [`RefDataDbEntry`] which represents the latest record of the given data.
-    pub fn new_latest(ref_data: ReferenceData, valid_from: NaiveDate) -> Self {
-        Self {
+    pub fn new_latest(ref_data: ReferenceData) -> Result<Self, SqlError> {
+        let valid_from = ref_data.technical_attributes
+            .as_ref()
+            .ok_or(SqlError::MissingPublicationPeriod)?
+            .publication_period
+            .as_ref()
+            .ok_or(SqlError::MissingPublicationPeriod)?
+            .from_date;
+        Ok(Self {
             ref_data,
             latest_record: true,
             valid_from,
             valid_to: None
-        }
+        })
     }
 
     pub async fn mark_prev_record(&self, tx: &mut SqliteTransaction<'_>) -> Result<u64, SqlError> {
         let prev_valid_to = self.valid_from - Duration::days(1);
-        let prev_valid_to_str = prev_valid_to.to_string();
+        IsinMic::from(&self.ref_data).mark_prev_record(prev_valid_to, tx).await
+    }
+}
+
+/// The ISIN and trading venue MIC for an instrument. At any one time there should be only one
+/// *latest* record (ie, `latest_record = true`) with the same ISIN and MIC in the database.
+struct IsinMic<'a> {
+    isin: &'a str,
+    mic: &'a str,
+}
+
+impl<'a> From<&'a ReferenceData> for IsinMic<'a> {
+    fn from(value: &'a ReferenceData) -> Self {
+        Self {
+            isin: &value.isin,
+            mic: &value.trading_venue_attrs.trading_venue
+        }
+    }
+}
+
+impl<'a> From<&'a CancelledRecord> for IsinMic<'a> {
+    fn from(value: &'a CancelledRecord) -> Self {
+        Self {
+            isin: &value.isin,
+            mic: &value.trading_venue
+        }
+    }
+}
+
+impl<'a> IsinMic<'a> {
+    async fn mark_prev_record(&self, valid_to: NaiveDate, tx: &mut SqliteTransaction<'_>) -> Result<u64, SqlError> {
+        let valid_to_str = valid_to.to_string();
         let query = sqlx::query!(
             r#"
                 UPDATE ReferenceData
@@ -54,14 +92,20 @@ impl RefDataDbEntry {
                 AND ReferenceData.isin = ? AND TradingVenueAttributes.trading_venue = ?
                 AND ReferenceData.valid_to IS NULL
             "#,
-            prev_valid_to_str,
-            self.ref_data.isin,
-            self.ref_data.trading_venue_attrs.trading_venue
+            valid_to_str,
+            self.isin,
+            self.mic
         );
         Ok(query
             .execute(&mut **tx)
             .await?
             .rows_affected())
+    }
+}
+
+impl CancelledRecord {
+    async fn mark_prev_record(&self, valid_to_date: NaiveDate, tx: &mut SqliteTransaction<'_>) -> Result<u64, SqlError> {
+        IsinMic::from(self).mark_prev_record(valid_to_date, tx).await
     }
 }
 
@@ -542,7 +586,7 @@ mod tests {
     use std::path::PathBuf;
 
     const FULINS_DATE: NaiveDate = NaiveDate::from_ymd_opt(2025, 2, 1).expect("Bad test date");
-    const DLTINS_DATE: NaiveDate = NaiveDate::from_ymd_opt(2025, 2, 2).expect("Bad test date");
+    const DLTINS_DATE: NaiveDate = NaiveDate::from_ymd_opt(2025, 2, 4).expect("Bad test date");
 
     fn test_data_dir() -> PathBuf {
         current_dir().unwrap().join("test_data")
@@ -588,7 +632,7 @@ mod tests {
             let mut tx = conn.begin().await.expect("Could not begin transaction");
             for r in IterRefData::new(&f).expect("Failed to create iterator") {
                 let ref_data = r.expect("Could not read reference data");
-                let ref_data_entry = RefDataDbEntry::new_latest(ref_data, FULINS_DATE);
+                let ref_data_entry = RefDataDbEntry::new_latest(ref_data).expect("Failed to create RefDataDbEntry");
                 ref_data_entry.to_db(&mut tx).await.expect("Could not serialise to DB");
             }
             tx.commit().await.expect("Could not commit transaction");
@@ -605,6 +649,7 @@ mod tests {
             .await.expect("Could not connect to database");
         let mut elem_count = 0;
         let mut modified_count = 0;
+        let mut cancelled_count = 0;
         for f in dltins_files {
             assert!(f.is_file());
             let mut tx = conn.begin().await.expect("Could not begin transaction");
@@ -616,25 +661,25 @@ mod tests {
                     "ModfdRcrd" => {
                         modified_count += 1;
                         let m = ModifiedRecord::from_xml(&elem).expect("Could not parse modified record");
-                        let r = RefDataDbEntry::new_latest(m.0, DLTINS_DATE);
-                        let aff = r.mark_prev_record(&mut tx).await.expect("Could not update previous record");
-                        if aff != 1 {
-                            println!("{:?}", r.ref_data.isin)
-                        }
-                        assert_eq!(aff, 1);
+                        let r = RefDataDbEntry::new_latest(m.0).expect("Failed to create RefDataDbEntry");
+                        r.mark_prev_record(&mut tx).await.expect("Could not update previous record");
                         r.to_db(&mut tx).await.expect("Could not serialise to DB");
                     },
                     "CancRcrd" => {
-                        let c = CancelledRecord::from_xml(&elem).expect("Could not parse modified record");
-                        let r = RefDataDbEntry::new_latest(c.0, DLTINS_DATE);
-                        r.mark_prev_record(&mut tx).await.expect("Could not update previous record");
-                        r.to_db(&mut tx).await.expect("Could not serialise to DB");
+                        cancelled_count += 1;
+                        let c_res = CancelledRecord::from_xml(&elem);
+                        if c_res.is_err() {
+                            println!("{elem:?}");
+                            panic!()
+                        }
+                        let c = c_res.expect("Could not parse cancelled record");
+                        c.mark_prev_record(DLTINS_DATE, &mut tx).await.expect("Could not update previous record");
                     },
                     "TermntdRcrd" => (),
                     other => panic!("Unknown element {other:?}"),
                 }
             }
-            println!("{modified_count}");
+            assert!(modified_count + cancelled_count > 0);
             tx.commit().await.expect("Could not commit transaction");
         }
         assert_ne!(elem_count, 0);

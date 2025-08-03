@@ -371,7 +371,14 @@ impl FromXml for ModifiedRecord {
 
 impl FromXml for CancelledRecord {
     fn from_xml(elem: &Element) -> Result<Self, XmlError> {
-        Ok(Self(ReferenceData::from_xml(elem)?))
+        Ok(Self {
+            isin: elem.get_child("FinInstrmGnlAttrbts")?
+                .get_child("Id")?
+                .text.to_owned(),
+            trading_venue: elem.get_child("TradgVnRltdAttrbts")?
+                .get_child("Id")?
+                .text.to_owned(),
+        })
     }
 }
 
